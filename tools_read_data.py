@@ -18,7 +18,6 @@ def print_info_on_data(data, size_threshold):
     print('max length basket= ', max([len(elem) for elem in data]))
     print('vocabulary size ', max([max(elem) for elem in data]))
     print('proportion of baskets with size below ', str(size_threshold),' ', 100*num_seq_smaller_than/num_seq)
-    print(data[:4])
 
 def read_data(data_file_path):
     data = [[]]
@@ -124,6 +123,16 @@ def load_data(self):
         folder = "datasets/netflix/"
         metric = "MPR"
         type_of_data = "real"
+    if self.dataset == "netflix_mf_Ponly":
+        data = np.load("datasets/netflix_mf_Ponly.npy")
+        folder = "datasets/netflix/"
+        metric = "AUC"
+        type_of_data = "real"
+    if self.dataset == "movielens_mf_Ponly":
+        data = np.load("datasets/movielens_mf_Ponly.npy")
+        folder = "datasets/netflix/"
+        metric = "AUC"
+        type_of_data = "real"
     if self.dataset == "Belgian":
         data = get_data("datasets/retail.dat")
         folder = "datasets/Belgian/"
@@ -181,6 +190,4 @@ def load_data(self):
         type_of_data = "synthetic"
     
     print_info_on_data(data, self.max_basket_size)
-    if (self.dataset!="text8"):
-        print("min elem = ", min([elem for ss in data for elem in ss]), " max elem = ", max([elem for ss in data for elem in ss]))
     return data, folder, metric, type_of_data

@@ -90,18 +90,20 @@ def process_and_shuffle_data(self):
         self.data_index = 0
     if (self.type_of_data=="synthetic"):
         self.X, self.Y, self.Z, self.threshold = np.load(self.folder+"X.npy"), np.load(self.folder+"Y.npy"), np.load(self.folder+"Z.npy"), np.load(self.folder+"threshold.npy")
-    if (self.type_of_data=="real") and (self.dataset != "NYtimes") and (self.dataset != "text8"):
+    if (self.metric=="MPR"):
         shuffle(self.data)
-    if (self.type_of_data=="synthetic"):
+    if (self.metric=="AUC"):
         np.random.shuffle(self.data)
 
 def get_vocabulary_size(self):
     if (self.type_of_data=="synthetic"):
-        self.vocabulary_size = 10000
+        self.vocabulary_size, self.vocabulary_size2 = 10000, 10000
     elif (self.dataset=="text8"):
-        self.vocabulary_size = 20000
+        self.vocabulary_size, self.vocabulary_size2 = 20000, 20000
+    elif ("mf" in self.dataset):
+        self.vocabulary_size, self.vocabulary_size2 = (1+max([elem for elem in self.data[:,0]]), 1+max([elem for elem in self.data[:,1]]))
     else:
-        _, max1 = counters_per_prod(self.data)
-        self.vocabulary_size = max(max1, 1+max([elem for ss in self.data for elem in ss]))
-    return self.vocabulary_size
+        self.vocabulary_size = 1+max([elem for ss in self.data for elem in ss])      
+        self.vocabulary_size2 = self.vocabulary_size
+    return (self.vocabulary_size, self.vocabulary_size2)
 

@@ -27,14 +27,15 @@ from basket_completion import Basket_Completion_Model
 
 class Model(object):
     def __init__(self, dataset):
-        random.seed(1234)
-        np.random.seed(1234)
-        tf.set_random_seed(1234)
+        self.seed = 1234
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        tf.set_random_seed(self.seed)
 
         self.max_basket_size, self.test_data_max_size = 50, 5000
         self.dataset = dataset
         self.data, self.folder, self.metric, self.type_of_data = load_data(self)
-        self.vocabulary_size = get_vocabulary_size(self)
+        self.vocabulary_size, self.vocabulary_size2 = get_vocabulary_size(self)
         process_and_shuffle_data(self)
 
         self.proportion_training, self.proportion_test = (0.8, 0.2) if (self.dataset != "text8") else (1.0, 0)
@@ -42,14 +43,17 @@ class Model(object):
         self.test_data, self.training_data = self.data[:self.num_test_instances], self.data[self.num_test_instances:]
         self.test_list_batches, self.test_baskets, self.test_items = get_test_list_batches(self)
 
-        self.popularity_distribution = np.array(get_popularity_dist(self.training_data, self.vocabulary_size))
+        self.popularity_distribution = 1 #np.array(get_popularity_dist(self.training_data, self.vocabulary_size))
         self.embedding_size, self.batch_size, self.epoch, self.speeding_factor, self.seq_length = 128, 200, 10, 25, 25
         if (self.type_of_data=="synthetic") or (self.dataset == "text8"):
             self.seq_length= 1
 
         self.use_pretrained_embeddings=False
+        print(self.dataset, self.metric, self.type_of_data)
+        print("")
         print("Length data, train and test ", len(self.data), len(self.training_data), len(self.test_data))            
-        print("Vocabulary size", self.vocabulary_size)
+        print("Vocabulary sizes", self.vocabulary_size, self.vocabulary_size2)
+        print("")
 
 class w2v(Model):
     def __init__(self):
@@ -96,138 +100,120 @@ class CNN(Model):
         np.save("textCNN_results", data)
         cnn.train_model_with_tensorflow()
 
-def create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type):
+def create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type, sampling_type):
         self.embedding_matrix = np.load("embedding_matrix.npy") if (os.path.isfile("embedding_matrix.npy")) else np.zeros((1,1))
         self.use_pretrained_embeddings = False
         self.G_type, self.D_type = G_type, D_type
         self.model_type = model_type
         if (model_type=="AIS"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["ADV_IS", "Not_Mixed"], ["SS", "Not_Mixed"]
-        elif (model_type=="softmax"):
-            self.adv_generator_loss, self.adv_discriminator_loss = ["ADV_IS", "Not_Mixed"], ["softmax", "Not_Mixed"]
+            self.negD = [5, 1] if (neg_sampled==1) else [25, 1]
         elif (model_type=="MALIGAN"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["MALIGAN", "Mixed"], ["SS", "Not_Mixed"]
+            self.negD = [5, 1] if (neg_sampled==1) else [25, 1]
+        elif (model_type=="softmax"):
+            self.adv_generator_loss, self.adv_discriminator_loss = ["Random_ADV_IS", "Not_Mixed"], ["softmax", "Not_Mixed"]
+            self.negD = negD
+        elif (model_type=="MLE"):
+            self.adv_generator_loss, self.adv_discriminator_loss = ["Random_ADV_IS", "Not_Mixed"], ["MLE", "Not_Mixed"]
+            self.negD = negD
         elif ("BCE" in model_type):
             self.adv_generator_loss, self.adv_discriminator_loss = ["Random_ADV_IS", "Not_Mixed"], ["BCE", "Not_Mixed"]
-        else:
+            self.negD = negD
+        elif (model_type=="selfplay"):
              self.adv_generator_loss, self.adv_discriminator_loss = ["Random_ADV_IS", "Not_Mixed"], ["SS", "Not_Mixed"]
+             self.negD = [1, 0] if (neg_sampled<1) else [neg_sampled, 0]
+        else:
+            self.adv_generator_loss, self.adv_discriminator_loss = ["Random_ADV_IS", "Not_Mixed"], ["SS", "Not_Mixed"]
+            self.negD = [0, 1] if (neg_sampled<1) else [0, neg_sampled]
+        self.negG = [1, 0] if (neg_sampled<1) else [neg_sampled, 0]
         self.neg_sampled = neg_sampled
-        self.negD, self.negG = negD, negG
         self.name = model_type + "_" + dataset +"_"+ G_type + "_" + str(neg_sampled)
-        self.discriminator_samples_type = ["stochastic", "uniform"]
+        self.name = self.name +"_"+sampling_type if (sampling_type=="no_stochastic") else self.name
+        self.discriminator_samples_type, self.generator_samples_type = [sampling_type, "uniform"], [sampling_type, "uniform"]
         self.min_steps = min_steps
 
 class Basket_Generation(Model):
     def __init__(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type):
         Model.__init__(self, dataset)
-        create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type)
+        create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type, sampling_type)
         gan = Basket_Generation_Model(self)
         gan.train_model_with_tensorflow()
 
 class Basket_Completion(Model):
-    def __init__(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type):
+    def __init__(self, dataset, model_type, negD=[1,0], negG=[1,0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v", sampling_type="stochastic"):
         Model.__init__(self, dataset)
-        create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type)
+        create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type, sampling_type)
         gan = Basket_Completion_Model(self)
         gan.train_model_with_tensorflow()
 
 class Self_Basket_Completion(Model):
-    def __init__(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type):
+    def __init__(self, dataset, model_type, negD=[1,0], negG=[1,0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v", sampling_type="stochastic"):
         Model.__init__(self, dataset)
-        create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type)
+        create_all_attributes(self, dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type, sampling_type)
         self_play = Self_Basket_Completion_Model(self)
         self_play.train_model_with_tensorflow()
 
-def launch(dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type):
-    if (model_type=="AIS") or (model_type=="MALIGAN"):
-        Basket_Completion(dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type)
+def get_class(model):
+    if (model=="AIS") or (model=="MALIGAN"):
+        return Basket_Completion
     else:
-        Self_Basket_Completion(dataset, model_type, negD, negG, min_steps, neg_sampled, G_type, D_type)
+        return Self_Basket_Completion
+
+def get_min_steps(dataset):
+    return 2500 if (dataset=="Amazon") else 20000
+
+def test_all_softmax(list_of_datasets):
+    for dataset in list_of_datasets:
+        Self_Basket_Completion(dataset=dataset, min_steps=get_min_steps(dataset), model_type="softmax", G_type="w2v", D_type="w2v")
+        Self_Basket_Completion(dataset=dataset, min_steps=get_min_steps(dataset), model_type="softmax", G_type="CNN", D_type="CNN")
+
+def test_all_MLE(list_of_datasets):
+    for dataset in list_of_datasets:
+        Self_Basket_Completion(dataset=dataset, min_steps=get_min_steps(dataset), model_type="MLE", G_type="w2v", D_type="w2v")
+        Self_Basket_Completion(dataset=dataset, min_steps=get_min_steps(dataset), model_type="MLE", G_type="CNN", D_type="CNN")
+
+def test_other_models(list_of_models, list_of_datasets, list_of_NS, list_of_networks, sampling_type="stochastic"):
+    #id_to_dataset = {1:"Amazon", 2:"Belgian", 3:"UK", 4:"movielens", 5:"netflix"}
+    for net in list_of_networks:
+        for model in list_of_models:
+            for dataset in list_of_datasets:
+                for NS in list_of_NS:
+                    get_class(model)(dataset=dataset, model_type=model, min_steps=get_min_steps(dataset), sampling_type=sampling_type, \
+                        neg_sampled=NS, G_type=net, D_type=net)
+                        
+test_all_softmax(["Amazon", "Belgian", "UK", "movielens", "netflix"])
+test_all_MLE(["Amazon", "Belgian", "UK", "movielens", "netflix"])
+test_other_models(["uniform", "baseline"], ["Amazon"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["Amazon"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["uniform", "baseline"], ["Amazon"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["Amazon"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
 
 
-base = launch(dataset="Amazon", model_type="softmax", negD=[0, 1], negG=[25, 0], min_steps=0, neg_sampled=25, G_type="w2v", D_type="w2v")
+test_other_models(["uniform", "baseline"], ["Belgian"], [0.5,0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["Belgian"], [0.5,0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["uniform", "baseline"], ["netflix"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["netflix"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
 
-###############################1
-#base = Self_Basket_Completion(dataset="Amazon", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unif = Self_Basket_Completion(dataset="Amazon", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unifBCE = Self_Basket_Completion(dataset="Amazon", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#self = Self_Basket_Completion(dataset="Amazon", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#selfBCE = Self_Basket_Completion(dataset="Amazon", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#ais = Basket_Completion(dataset="Amazon", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#maligan = Basket_Completion(dataset="Amazon", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
+test_other_models(["uniform", "baseline"], ["Belgian"], [0.5,0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["Belgian"], [0.5,0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["uniform", "baseline"], ["netflix"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["netflix"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
 
-#base = Self_Basket_Completion(dataset="Amazon", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unif = Self_Basket_Completion(dataset="Amazon", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unifBCE = Self_Basket_Completion(dataset="Amazon", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#self = Self_Basket_Completion(dataset="Amazon", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#selfBCE = Self_Basket_Completion(dataset="Amazon", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#ais = Basket_Completion(dataset="Amazon", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#maligan = Basket_Completion(dataset="Amazon", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
 
-###############################2
-#base = Self_Basket_Completion(dataset="Belgian", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unif = Self_Basket_Completion(dataset="Belgian", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unifBCE = Self_Basket_Completion(dataset="Belgian", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#self = Self_Basket_Completion(dataset="Belgian", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#selfBCE = Self_Basket_Completion(dataset="Belgian", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#ais = Basket_Completion(dataset="Belgian", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#maligan = Basket_Completion(dataset="Belgian", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
+test_other_models(["uniform", "baseline"], ["UK"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["UK"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["uniform", "baseline"], ["movielens"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["movielens"], [0.5, 0.75, 1, 2, 5, 25, 50], ["w2v"])
 
-#base = Self_Basket_Completion(dataset="Belgian", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unif = Self_Basket_Completion(dataset="Belgian", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unifBCE = Self_Basket_Completion(dataset="Belgian", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#self = Self_Basket_Completion(dataset="Belgian", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#selfBCE = Self_Basket_Completion(dataset="Belgian", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#ais = Basket_Completion(dataset="Belgian", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#maligan = Basket_Completion(dataset="Belgian", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
+test_other_models(["uniform", "baseline"], ["UK"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["UK"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["uniform", "baseline"], ["movielens"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
+test_other_models(["selfplay", "AIS", "MALIGAN"], ["movielens"], [0.5, 0.75, 1, 2, 5, 25, 50], ["CNN"])
 
-###############################3
-#base = Self_Basket_Completion(dataset="UK", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unif = Self_Basket_Completion(dataset="UK", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unifBCE = Self_Basket_Completion(dataset="UK", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#self = Self_Basket_Completion(dataset="UK", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#selfBCE = Self_Basket_Completion(dataset="UK", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#ais = Basket_Completion(dataset="UK", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#maligan = Basket_Completion(dataset="UK", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
 
-#base = Self_Basket_Completion(dataset="UK", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unif = Self_Basket_Completion(dataset="UK", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unifBCE = Self_Basket_Completion(dataset="UK", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#self = Self_Basket_Completion(dataset="UK", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#selfBCE = Self_Basket_Completion(dataset="UK", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#ais = Basket_Completion(dataset="UK", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#maligan = Basket_Completion(dataset="UK", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
 
-###############################4
-#base = Self_Basket_Completion(dataset="movielens", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unif = Self_Basket_Completion(dataset="movielens", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unifBCE = Self_Basket_Completion(dataset="movielens", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#self = Self_Basket_Completion(dataset="movielens", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#selfBCE = Self_Basket_Completion(dataset="movielens", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#ais = Basket_Completion(dataset="movielens", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#maligan = Basket_Completion(dataset="movielens", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
 
-#base = Self_Basket_Completion(dataset="movielens", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unif = Self_Basket_Completion(dataset="movielens", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unifBCE = Self_Basket_Completion(dataset="movielens", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#self = Self_Basket_Completion(dataset="movielens", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#selfBCE = Self_Basket_Completion(dataset="movielens", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#ais = Basket_Completion(dataset="movielens", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#maligan = Basket_Completion(dataset="movielens", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
 
-###############################5
-#base = Self_Basket_Completion(dataset="netflix", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unif = Self_Basket_Completion(dataset="netflix", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#unifBCE = Self_Basket_Completion(dataset="netflix", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#self = Self_Basket_Completion(dataset="netflix", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#selfBCE = Self_Basket_Completion(dataset="netflix", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#ais = Basket_Completion(dataset="netflix", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
-#maligan = Basket_Completion(dataset="netflix", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="w2v", D_type="w2v")
 
-#base = Self_Basket_Completion(dataset="netflix", model_type="baseline", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unif = Self_Basket_Completion(dataset="netflix", model_type="uniform", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#unifBCE = Self_Basket_Completion(dataset="netflix", model_type="uniformBCE", negD=[0, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#self = Self_Basket_Completion(dataset="netflix", model_type="selfplay", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#selfBCE = Self_Basket_Completion(dataset="netflix", model_type="selfplayBCE", negD=[1, 0], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#ais = Basket_Completion(dataset="netflix", model_type="AIS", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
-#maligan = Basket_Completion(dataset="netflix", model_type="MALIGAN", negD=[5, 1], negG=[1, 0], min_steps=2500, neg_sampled=1, G_type="CNN", D_type="CNN")
+                                                                                                          

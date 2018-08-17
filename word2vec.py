@@ -14,7 +14,7 @@ class W2V_Model(object):
 
     def __init__(self, wider_model):
         #w2v.__init__(self)
-        self.vocabulary_size = wider_model.vocabulary_size
+        self.vocabulary_size, self.vocabulary_size2 = wider_model.vocabulary_size, wider_model.vocabulary_size2
         self.embedding_size = wider_model.embedding_size
         self.batch_size = wider_model.batch_size
         self.num_sampled = wider_model.neg_sampled_pretraining
@@ -94,17 +94,17 @@ class W2V_Model(object):
 
     def compute_loss(self, output, label_tensor):
         with tf.name_scope("output_layer"):
-            self.nce_weights = tf.Variable(tf.truncated_normal([self.vocabulary_size, self.embedding_size], stddev=1.0 / math.sqrt(self.embedding_size)))
-            self.nce_biases = tf.Variable(tf.zeros([self.vocabulary_size]))
+            self.nce_weights = tf.Variable(tf.truncated_normal([self.vocabulary_size2, self.embedding_size], stddev=1.0 / math.sqrt(self.embedding_size)))
+            self.nce_biases = tf.Variable(tf.zeros([self.vocabulary_size2]))
 
             if (self.loss == "NCE"):
                 self.loss = tf.reduce_mean(tf.nn.nce_loss(
                     weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
-                    inputs=output, num_sampled=self.num_sampled, num_classes=self.vocabulary_size))
+                    inputs=output, num_sampled=self.num_sampled, num_classes=self.vocabulary_size2))
             if (self.loss == "NEG"):
                 self.loss = tf.reduce_mean(tf.nn.sampled_softmax_loss(
                     weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
-                    inputs=output, num_sampled=self.num_sampled, num_classes=self.vocabulary_size))
+                    inputs=output, num_sampled=self.num_sampled, num_classes=self.vocabulary_size2))
         return self.loss
 
     def get_predictions(self, output):
@@ -115,7 +115,7 @@ class W2V_Model(object):
         return self.before_softmax
     def get_score(self, output, elem):
         nce_weights, nce_biases = tf.nn.embedding_lookup(self.nce_weights, elem), tf.nn.embedding_lookup(self.nce_biases, elem)
-        return tf.matmul(output,tf.transpose(nce_weights)) + nce_biases
+        return tf.reduce_sum(tf.multiply(output, nce_weights), axis=1) + nce_biases
     def get_similarity(self, input_tensor):
         norm = tf.sqrt(tf.reduce_sum(tf.square(self.embeddings_tensorflow), 1, keepdims=True))
         normalized_embeddings = self.embeddings_tensorflow / norm

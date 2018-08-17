@@ -2,10 +2,11 @@ import math
 import numpy as np
 import random
 import matplotlib.pyplot as plt
-from scipy.stats import norm
+from scipy.stats import norm, describe
 from sklearn.metrics import roc_auc_score
 
 from tools import *
+from training_utils import create_batch
 
 def print_results_predictions(last_predictions, batch_inputs, targets, vocabulary_size):
     predictions_for_targets = 100*np.mean(np.array([last_predictions[i][int(targets[i])] for i in range(len(batch_inputs))]))
@@ -44,10 +45,10 @@ def append_lists_with_zeros(list_of_lists):
     for elem in list_of_lists:
         elem.append(0.0)
 
-def print_confidence_intervals(self, mode):
+def print_confidence_intervals(self):
     all_MPRs_G, all_MPRs_D, all_precisions_1G, all_precisions_1D, all_precisions_1pG, all_precisions_1pD = list(), list(), list(), list(), list(), list()
     numbers = [len(elem) for elem in self.test_list_batches][2:]
-    number_of_cross_validations = 5
+    number_of_cross_validations = 6
     for k in range(number_of_cross_validations):
         MPR_G, MPR_D, p1G, p1D, p1pG, p1pD = list(), list(), list(), list(), list(), list()
 
@@ -57,16 +58,15 @@ def print_confidence_intervals(self, mode):
                 batches = self.test_list_batches[i][batches_selected]
                 train_words, targets = batches[:,:-1], np.reshape(batches[:,-1], (-1,1))
                 append_results_MPR_and_prec(self, i, self.before_softmax_D, MPR_D, p1D, p1pD, train_words, targets)
-                if (mode!="selfplay") and (mode!="baseline"):
+                if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
                     append_results_MPR_and_prec(self, i, self.before_softmax_G, MPR_G, p1G, p1pG, train_words, targets)
             else:
                 append_lists_with_zeros([MPR_G, MPR_D, p1G, p1D, p1pG, p1pD])
-        #if k==0:
-        #    print(MPR_D)
+        
         all_MPRs_D.append(np.dot(np.array(numbers), np.array(MPR_D))/np.sum(numbers))
         all_precisions_1D.append(np.dot(np.array(numbers), np.array(p1D))/np.sum(numbers))
         all_precisions_1pD.append(np.dot(np.array(numbers), np.array(p1pD))/np.sum(numbers))
-        if (mode!="selfplay") and (mode!="baseline"):
+        if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
             all_MPRs_G.append(np.dot(np.array(numbers), np.array(MPR_G))/np.sum(numbers))
             all_precisions_1G.append(np.dot(np.array(numbers), np.array(p1G))/np.sum(numbers))
             all_precisions_1pG.append(np.dot(np.array(numbers), np.array(p1pG))/np.sum(numbers))
@@ -81,12 +81,12 @@ def print_confidence_intervals(self, mode):
         l[4].append(round(sum(p1p)/2, 5))
         l[5].append(round(p1p[1]-p1p[0], 5))
 
-    print_confidence_intervals_aux([self.MPRD, self.confintD, self.p1D, self.confintp1D, self.p1pD, self.confintp1pD], mpr, p1, p1p)
+    print_confidence_intervals_aux([self.main_scoreD, self.confintD, self.p1D, self.confintp1D, self.p1pD, self.confintp1pD], mpr, p1, p1p)
 
-    if (mode!="selfplay") and (mode!="baseline"):
+    if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
         mpr, p1, p1p = get_conf_int(all_MPRs_G, 5), get_conf_int(all_precisions_1G, 5), get_conf_int(all_precisions_1pG, 5)
         print("Results for G " + "MPR "+ str(mpr)+ " P@1 "+ str(p1)+ " P@1p " + str(p1p))
-        print_confidence_intervals_aux([self.MPRG, self.confintG, self.p1G, self.confintp1G, self.p1pG, self.confintp1pG], mpr, p1, p1p)
+        print_confidence_intervals_aux([self.main_scoreG, self.confintG, self.p1G, self.confintp1G, self.p1pG, self.confintp1pG], mpr, p1, p1p)
     print("")
 
 #Functions AUC for Synthetic datasets !!!
@@ -128,7 +128,6 @@ def get_heatmap_density(self, positive_samples, output_distributions):
     heatmap_final = heatmap_final/sum_tot
     self.heatmap = heatmap_final
 
-
 def print_samples_and_KDE_density(self, true_negative_samples, false_negative_samples, print_params, print_negatives):
     plt.figure(figsize=(15, 5))
     if print_negatives:
@@ -160,7 +159,7 @@ def create_dir(type_of_data):
     if not os.path.exists(type_of_data):
         os.makedirs(type_of_data)
 
-def print_candidate_sampling(self, print_params):
+def get_auc_synthetic_data(self, print_params):
     batches = self.test_data[np.random.choice(len(self.test_data), size=2500)]
     train_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
 
@@ -188,3 +187,64 @@ def print_candidate_sampling(self, print_params):
     print("AUC score is "+ print_params[0]+ "_" + print_params[1] +" "+ str(auc_score))
     print("")
     return true_neg_prop, auc_score
+
+def get_auc_real_data(self):
+    positive_samples = self.test_data[np.random.choice(len(self.test_data), size=5000)]
+    negative_samples = np.array([(np.random.randint(self.vocabulary_size2), np.random.randint(self.vocabulary_size2)) for elem in range(5000)])
+    
+    number_of_cross_validations = 7
+    auc_scoresD, auc_scoresG = list(), list()
+    for k in range(number_of_cross_validations):
+        batches_selected = np.random.choice(np.arange(len(positive_samples)), int(0.7*len(positive_samples)), replace=False)
+        def append_res(op, auc_scores):
+            pos_t, pos_l = np.reshape(positive_samples[batches_selected][:,0], (-1,1)), np.reshape(positive_samples[batches_selected][:,1], (-1,1))
+            neg_t, neg_l = np.reshape(negative_samples[batches_selected][:,0], (-1,1)), np.reshape(negative_samples[batches_selected][:,1], (-1,1))
+            positive_scores = list(self._sess.run([op], feed_dict={self.train_words:pos_t, self.label_words:pos_l, self.dropout:1})[0])
+            negative_scores = list(self._sess.run([op], feed_dict={self.train_words:neg_t, self.label_words:neg_l, self.dropout:1})[0])
+            scores = positive_scores+negative_scores
+            labels = np.array([1]*len(positive_scores) + [0]*len(negative_scores))
+            auc_scores.append(roc_auc_score(labels, scores))
+
+        append_res(self.score_target_D, auc_scoresD)
+        if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
+            append_res(self.score_target_G, auc_scoresG)
+
+    print("")
+    def get_auc_real_data_aux(l, auc, model):
+        auc = get_conf_int(auc, 5)
+        print("AUC score for " + model + str(auc))
+        l[0].append(round(sum(auc)/2, 5))
+        l[1].append(round(auc[1]-auc[0], 5))
+        
+    get_auc_real_data_aux([self.main_scoreD, self.confintD], auc_scoresD, "discriminator")
+    if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
+            get_auc_real_data_aux([self.main_scoreG, self.confintG], auc_scoresG, "generator")
+    print("")
+
+def get_auc_and_true_neg_proportion(self, print_params):
+    if (self.model_params.type_of_data=="synthetic"):
+        get_auc_synthetic_data(self, print_params)
+    else:
+        get_auc_real_data(self, print_params)
+
+def get_proportion_same_element(self):
+    train_words, label_words = create_batch(self, 1000)
+    if (self.model_params.model_type == "AIS") or (self.model_params.model_type == "MALIGAN"):
+        samples = self._sess.run(self.gen_self_samples, feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1})
+        tv, fv = self._sess.run([self.true_values_sigmoid, self.fake_values_sigmoid], feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1})
+        auc = roc_auc_score(np.array([1]*len(tv.flatten())+[0]*len(fv.flatten())), np.array(list(tv.flatten())+list(fv.flatten())))
+        acc = [np.mean(np.around(tv)), 1-np.mean(np.around(fv))]
+        print("auc disc ", str(auc))
+        print('acc disc true and fake ', str(acc))
+    else:
+        samples = self._sess.run(self.disc_self_samples, feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1})
+
+    prop, prop_equal_target = list(), list()
+    for i, elem in enumerate(samples):
+        prop.append(len(np.unique(elem))/len(elem))
+        prop_equal_target.append(len(np.where(elem==label_words[:,-1][i])[0])/len(elem))
+
+    print("Proportion unique " + str(round(100*np.mean(np.array(prop)), 5)))
+    print("Proportion equal target " + str(round(100*np.mean(np.array(prop_equal_target)), 5)))
+    self.true_neg_prop.append(np.mean(np.array(prop)))
+

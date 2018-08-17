@@ -19,7 +19,7 @@ class Gen_CNN_Model(object):
 
     def __init__(self, model):
         self.model_params = model
-        self.vocabulary_size = model.vocabulary_size
+        self.vocabulary_size, self.vocabulary_size2 = model.vocabulary_size, model.vocabulary_size2
         self.embedding_size = model.embedding_size
         self.batch_size = model.batch_size
         self.seq_length = model.seq_length
@@ -90,11 +90,11 @@ class Gen_CNN_Model(object):
 
     def compute_loss(self, output, label_tensor):
         with tf.name_scope("output_layer"):
-            self.nce_weights = tf.Variable(tf.truncated_normal([self.vocabulary_size, self.num_filters * len(self.filter_sizes)], stddev=1.0 / math.sqrt(self.embedding_size)))
-            self.nce_biases = tf.Variable(tf.zeros([self.vocabulary_size]))
+            self.nce_weights = tf.Variable(tf.truncated_normal([self.vocabulary_size2, self.num_filters * len(self.filter_sizes)], stddev=1.0 / math.sqrt(self.embedding_size)))
+            self.nce_biases = tf.Variable(tf.zeros([self.vocabulary_size2]))
             self.loss = tf.reduce_mean(tf.nn.sampled_softmax_loss(
                 weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
-                inputs=output, num_sampled=self.neg_sampled, num_classes=self.vocabulary_size))
+                inputs=output, num_sampled=self.neg_sampled, num_classes=self.vocabulary_size2))
         return self.loss
 
     def create_graph(self):
