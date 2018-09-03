@@ -1,5 +1,5 @@
 import copy
-from random import shuffle
+from random import shuffle, sample
 import itertools
 import csv
 from tqdm import tqdm
@@ -17,12 +17,17 @@ def get_the_density_of_the_baskets_length_in_the_data(data):
     cumul = np.column_stack((np.arange(25),np.cumsum(density)))
     print(cumul)
 
-def create_2D_datasets_from_list_of_list(listoflist, name):
+def create_2D_datasets_from_list_of_list(listoflist):
     all_pairs = list()
     for elem in listoflist:
-        all_pairs.extend(list(itertools.combinations(elem, 2)))
-    np.save(name+".npy", np.array(all_pairs))
-    print("Dataset saved!")
+        if len(elem)<35:
+            all_pairs.extend(list(itertools.combinations(elem, 3))[:50])
+        else:
+            all_pairs.extend(list(itertools.combinations(sample(elem, 35), 3))[:50])
+    arr = np.array(all_pairs)
+    np.random.shuffle(arr)
+    print("Number of training pairs", len(arr))
+    return arr
 
 def counters_per_prod(data):
     counter = Counter()
@@ -65,7 +70,6 @@ def get_test_list_batches(self):
 
     self.test_items = np.reshape(np.array([i for i in range(25, 50)] + [i for i in range(100, 125)] + [i for i in range(250, 275)] \
                 + [i for i in range(500, 525)] + [i for i in range(1000, 1025)]), (-1,1))
-
     return self.test_list_batches, self.test_baskets, self.test_items
 
 def get_popularity_dist(training_data, vocabulary_size):

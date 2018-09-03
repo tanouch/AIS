@@ -53,7 +53,8 @@ def get_data_movies_datasets(input_file):
 def read_data_UK_retail(data_file_path):
     dict_basket = dict()
     dict_from_items_to_ids = dict()
-    with open(data_file_path) as data_csv_file:
+    dict_from_items_to_desc = dict()
+    with open(data_file_path, encoding='utf-8') as data_csv_file:
         data_csv_reader = csv.reader(data_csv_file, delimiter = ',')
         i, num_of_ids = 0, 0
         for row in data_csv_reader:
@@ -63,18 +64,24 @@ def read_data_UK_retail(data_file_path):
                         dict_basket[row[0]].append(dict_from_items_to_ids[row[1]])
                     else:
                         dict_from_items_to_ids[row[1]] = num_of_ids
-                        num_of_ids += 1
+                        dict_from_items_to_desc[row[1]] = row[2]
                         dict_basket[row[0]].append(dict_from_items_to_ids[row[1]])
+                        num_of_ids += 1
                 else:
                     if (row[1] in dict_from_items_to_ids):
                         dict_basket[row[0]] = [dict_from_items_to_ids[row[1]]]
                     else:
                         dict_from_items_to_ids[row[1]] = num_of_ids
-                        num_of_ids += 1
+                        dict_from_items_to_desc[row[1]] = row[2]
                         dict_basket[row[0]] = [dict_from_items_to_ids[row[1]]]
+                        num_of_ids += 1
             i += 1
     baskets = [dict_basket[key] for key in sorted(list(dict_basket.keys()))]
-    return baskets
+    #dict_from_ids_to_items = {v: k for k, v in dict_from_items_to_ids.items()}
+    dict_from_ids_to_descriptions = {v: dict_from_items_to_desc[k] for k, v in dict_from_items_to_ids.items()}
+    #print(dict_from_ids_to_descriptions)
+    print(num_of_ids)
+    return baskets, dict_from_ids_to_descriptions
 
 def load_NYtimes_dataset(data_file_path):
     list_of_baskets = list([])
@@ -103,6 +110,7 @@ def read_data_text8(filename):
     return data
 
 def load_data(self):
+    dictionnary = {}
     if self.dataset == "text8":
         data = read_data_text8("datasets/text8.zip")
         folder = "datasets/text8/"
@@ -139,7 +147,7 @@ def load_data(self):
         metric = "MPR"
         type_of_data = "real"
     if self.dataset == "UK":
-        data = read_data_UK_retail("datasets/UK_retail2.csv")
+        data, dictionnary = read_data_UK_retail("datasets/UK_retail2.csv")
         folder = "datasets/UK/"
         metric = "MPR"
         type_of_data = "real"
@@ -190,4 +198,4 @@ def load_data(self):
         type_of_data = "synthetic"
     
     print_info_on_data(data, self.max_basket_size)
-    return data, folder, metric, type_of_data
+    return data, folder, metric, type_of_data, dictionnary

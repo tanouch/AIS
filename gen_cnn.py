@@ -32,11 +32,11 @@ class Gen_CNN_Model(object):
         self.use_pretrained_embeddings = False
 
         self.number_of_convolutions = 2
-        self.num_filters = 100
-        self.filter_sizes = [2, 3, 5, 10]
+        self.num_filters = 125
+        self.filter_sizes = [2, 3, 4, 5]
         self.max_pooling_window = 4
         self.second_filter_size = 3
-        self.num_second_filters = 100
+        self.num_second_filters = 125
 
     def create_embedding_layer(self):
         with tf.name_scope("model"):
@@ -72,7 +72,7 @@ class Gen_CNN_Model(object):
                 
                 if (self.number_of_convolutions==2):
                     filter_shape = [self.second_filter_size, self.num_filters, 1, self.num_second_filters]
-                    pooled = self.convolve_4d_matrix(tf.transpose(pooled, perm=[0,1,3,2]), filter_shape, self.second_filter_size, \
+                    pooled = self.convolve_4d_matrix(tf.transpose(pooled, perm=[0, 1, 3, 2]), filter_shape, self.second_filter_size, \
                         self.num_second_filters, max_pooling=False, pooling_window_size=0)
                 
                 pooled = tf.reduce_max(pooled, axis=1, keepdims=True)

@@ -25,7 +25,7 @@ class Basket_Completion_Model(object):
         self.model_params = model
         self.train_data, self.test_data, self.X_train, self.Y_train, self.X_test, self.Y_test = list(), list(), list(), list(), list(), list()
         self.LSTM_labels_train, self.LSTM_labels_test = list(), list()
-        self.printing_step = 500
+        self.index, self.printing_step = 0, 2000
 
         self.neg_sampled = model.neg_sampled
         self.neg_sampled_pretraining = 1 if self.neg_sampled<1 else self.neg_sampled
@@ -51,8 +51,8 @@ class Basket_Completion_Model(object):
         self.d_loss = 0.5*(self.d_loss1+self.d_loss2) if (self.adv_discriminator_loss[1]=="Mixed") else self.d_loss2
         self.g_loss = 0.5*self.g_loss2 + 0.5*self.g_loss1 if (self.adv_generator_loss[1]=="Mixed") else self.g_loss2
 
-        self.gen_optimizer, self.gen_optimizer_adv = tf.train.AdamOptimizer(2.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(2.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
-        self.disc_optimizer, self.disc_optimizer_adv = tf.train.AdamOptimizer(2.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(2.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
+        self.gen_optimizer, self.gen_optimizer_adv = tf.train.AdamOptimizer(0.75e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(0.75e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
+        self.disc_optimizer, self.disc_optimizer_adv = tf.train.AdamOptimizer(0.75e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(0.75e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
         self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss, var_list=self.d_weights)
         self.g_train_MLE, self.g_train_adversarial = self.gen_optimizer.minimize(-self.mle_lossG, var_list=self.g_weights), self.gen_optimizer_adv.minimize(self.g_loss, var_list=self.g_weights)
 
@@ -66,41 +66,33 @@ class Basket_Completion_Model(object):
         self._sess = tf.Session()
         self._sess.run(tf.global_variables_initializer())
         step, cont = 0, True
-        self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0
+        disc_loss1, disc_loss2, gen_loss1, gen_loss2, self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0, 0, 0, 0, 0
 
         while cont:
-            if (np.random.uniform()<self.neg_sampled):
-                _, gen_loss1, gen_loss2 = training_step(self, list_of_operations_to_run=[self.g_train_adversarial, self.g_loss1, self.g_loss2])
-            else:
-                _, gen_loss1 = training_step(self, list_of_operations_to_run=[self.g_train_MLE, -self.mle_lossG])
-            for i in range(4):
-                _, disc_loss1, disc_loss2 = training_step(self, list_of_operations_to_run=[self.d_train_adversarial, self.d_loss1, self.d_loss2])
+            try:
+                if (np.random.uniform()<self.neg_sampled):
+                    _, gen_loss1, gen_loss2 = training_step(self, list_of_operations_to_run=[self.g_train_adversarial, self.g_loss1, self.g_loss2])
+                else:
+                    _, gen_loss1 = training_step(self, list_of_operations_to_run=[self.g_train_MLE, -self.mle_lossG])
+                for i in range(2):
+                    _, disc_loss1, disc_loss2 = training_step(self, list_of_operations_to_run=[self.d_train_adversarial, self.d_loss1, self.d_loss2])
 
-            self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2 = \
-                (self.Gen_loss1+gen_loss1, self.Gen_loss2+gen_loss2, self.Disc_loss1+disc_loss1, self.Disc_loss2+disc_loss2)
+                self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2 = \
+                    (self.Gen_loss1+gen_loss1, self.Gen_loss2+gen_loss2, self.Disc_loss1+disc_loss1, self.Disc_loss2+disc_loss2)
 
-            if (math.isnan(gen_loss1)) or (math.isnan(gen_loss2)) or (math.isnan(disc_loss1)) or (math.isnan(disc_loss2)):
-                cont = False
+                if (math.isnan(gen_loss1)) or (math.isnan(gen_loss2)) or (math.isnan(disc_loss1)) or (math.isnan(disc_loss2)):
+                    cont = False
+                    self.save_data()
+                if (step > self.model_params.min_steps) and early_stopping(self.main_scoreG, 5):
+                    cont = False
+                
+                cont = testing_step(self, step, cont)
+                step += 1
+                
+            
+            except KeyboardInterrupt:
                 self.save_data()
-
-            if (step % self.printing_step == 0):
-                print_gen_and_disc_losses(self, step)
-
-            if (step % self.printing_step == 0):
-                if (self.model_params.metric=="MPR"):
-                    print_confidence_intervals(self)
-                    get_proportion_same_element(self)
-
-                if (self.model_params.metric=="AUC"):
-                    get_auc_and_true_neg_proportion(self)
-
-                if (self.model_params.metric=="Analogy"):
-                    check_analogy(self, self.model_params.test_items)
-                    np.save("nlp/"+self.model_params.name+"_embeddings", self._sess.run([self.generator.embeddings_tensorflow])[0])
-
-            step += 1
-            if (step > self.model_params.min_steps) and early_stopping(self.main_scoreG):
-                cont = False
+                raise
         
         self.save_data()
     

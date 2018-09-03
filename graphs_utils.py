@@ -111,9 +111,9 @@ def discriminator_adversarial_loss(self):
     self.disc_random_samples = get_random_samples(self, self.discriminator_samples_type[1], self.random_negD)
 
     #Sampled Softmax loss
-    if (self.adv_discriminator_loss[0]=="softmax"):
+    #if (self.adv_discriminator_loss[0]=="softmax"):
         #true_elems_softmax = (self.output_distributions_D, self.label_words[:,-1]) #true_values_softmax = tf.log(tf.reshape(tf.stack(tf.map_fn(true_fn, true_elems_softmax, dtype=tf.float32, name="disc_values")), [-1])) #loss = tf.reduce_sum(true_values_softmax)
-        loss = -tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels= tf.one_hot(tf.reshape(self.label_words[:,-1], [-1]), self.vocabulary_size), logits=self.before_softmax_D))
+        #loss = -tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels= tf.one_hot(tf.reshape(self.label_words[:,-1], [-1]), self.vocabulary_size), logits=self.before_softmax_D))
 
     if ("SS" in self.adv_discriminator_loss[0]):
         self.disc_fake_samples = tf.concat([self.disc_self_samples, self.disc_random_samples, tf.reshape(self.label_words[:,-1], (-1, 1))], axis=1)
@@ -130,8 +130,10 @@ def discriminator_adversarial_loss(self):
         #self.fake_values = tf.transpose(tf.stack(tf.map_fn(fake_fn, tf.transpose(self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values")))
         self.fake_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values"))
         loss = tf.reduce_sum(tf.log(tf.sigmoid(self.true_valuesD))) + tf.reduce_sum(tf.log(1-tf.sigmoid(self.fake_values)))
-
-    self.true_values_sigmoid, self.fake_values_sigmoid = tf.sigmoid(self.true_valuesD), tf.sigmoid(self.fake_values)
+    
+    if ("SS" in self.adv_discriminator_loss[0]) or (self.adv_discriminator_loss[0]=="BCE"):
+        self.true_values_sigmoid, self.fake_values_sigmoid = tf.sigmoid(self.true_valuesD), tf.sigmoid(self.fake_values)
+        
     return loss
 
 def generator_adversarial_loss(self):
@@ -196,4 +198,4 @@ def generator_adversarial_loss(self):
 
 def get_network_variables(self, name_of_the_network):
         train_variables = tf.trainable_variables()
-        return [v for v in train_variables if v.name.startswith(name_of_the_network)]                                                                                                             
+        return [v for v in train_variables if v.name.startswith(name_of_the_network)]
