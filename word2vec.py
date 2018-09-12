@@ -12,99 +12,49 @@ from tools import *
 
 class W2V_Model(object):
 
-    def __init__(self, wider_model):
-        #w2v.__init__(self)
-        self.vocabulary_size, self.vocabulary_size2 = wider_model.vocabulary_size, wider_model.vocabulary_size2
-        self.embedding_size = wider_model.embedding_size
-        self.batch_size = wider_model.batch_size
-        self.num_sampled = wider_model.neg_sampled_pretraining
-        self.num_epochs = wider_model.epoch
-
-        self.embedding_matrix = wider_model.embedding_matrix
-        self.seq_length = wider_model.seq_length
-        self.use_pretrained_embeddings = wider_model.use_pretrained_embeddings
-
-        self.model_type = "cbow"
-        self.loss = "NEG"
-        self.learning_rate = 2
-        self.printing_step = 1000
-
+    def __init__(self, wider_model, number_layers):
+        self.wider_model = wider_model
+        self.number_layers = number_layers
+        self.model_type, self.loss = "cbow", "NEG"
+        self.learning_rate, self.printing_step = 2, 1000
         self.training_data, self.test_data = wider_model.training_data, wider_model.test_data
-        #self.X_train, _, self.Y_train = preprocessing_data(wider_model.training_data, wider_model.seq_length, 'cnn')
-        #self.X_test, _, self.Y_test = preprocessing_data_one_shuffle(wider_model.test_data, wider_model.seq_length, 'cnn') #no shuffle for test
-
-    def generate_wholeBatch(self, data, skip_window, generate_all_pairs):
-        context = list()
-        labels = list()
-        for i, sequence in enumerate(data):
-            length = len(sequence)
-            for j in range(length):
-                sub_list = list()
-                if (j - skip_window) >= 0 and (j + skip_window) < length:
-                    sub_list += sequence[j - skip_window:j]
-                    sub_list += sequence[j + 1:j + skip_window + 1]
-                elif j > skip_window:  # => j+skip_window >= length
-                    sub_list += sequence[j - skip_window:j]
-                    if j < (length - 1):
-                        sub_list += sequence[j + 1:length]
-                elif (j + skip_window) < length:
-                    if j > 0:
-                        sub_list += sequence[0:j]
-                    sub_list += sequence[j + 1:j + skip_window + 1]
-                else:
-                    if j > 0:
-                        sub_list += sequence[0:j]
-                    if j < length - 1:
-                        sub_list += sequence[j + 1:length]
-                    if length == 1:
-                        sub_list += sequence[j:j + 1]
-
-                if (generate_all_pairs==True):
-                    for elem in sub_list:
-                        context.append(elem)
-                        labels.append(sequence[j])
-                else:
-                    context.append(sub_list)
-                    labels.append(sequence[j])
-
-        labels = np.array(labels)
-        array_length = len(labels)
-        labels.shape = (array_length,1)
-        context = np.array(context)
-        shuffle_idx = np.random.permutation(array_length)
-        labels = labels[shuffle_idx]
-        context = context[shuffle_idx]
-        return context, labels
 
     def create_embedding_layer(self):
         with tf.name_scope("embeddings"):
             with tf.device('/cpu:0'):
-                if self.use_pretrained_embeddings:
+                if self.wider_model.use_pretrained_embeddings:
                     print("Initializing with the previous embedding matrix")
-                    self.embeddings = Embedding(self.vocabulary_size, self.embedding_size, weights=[self.embedding_matrix], input_length=self.seq_length, trainable=True)
+                    self.embeddings = Embedding(self.wider_model.vocabulary_size, self.wider_model.embedding_size, \
+                        weights=[self.wider_model.embedding_matrix], input_length=self.wider_model.seq_length, trainable=True)
                 else:
                     print("Initializing with a random embedding matrix")
-                    self.embeddings = Embedding(self.vocabulary_size, self.embedding_size, embeddings_initializer='uniform', input_length=self.seq_length)
+                    self.embeddings = Embedding(self.wider_model.vocabulary_size, self.wider_model.embedding_size, \
+                        embeddings_initializer='uniform', input_length=self.wider_model.seq_length)
         return self.embeddings
 
     def creating_layer(self, input_tensor, dropout=None):
         self.embed = self.embeddings(input_tensor) if (self.model_type=="skip_gram") else \
             tf.reduce_mean(self.embeddings(input_tensor), axis=1)
+        for i in range(self.number_layers-1):
+            W2, b2 = he_xavier(self.wider_model.embedding_size, self.wider_model.embedding_size, \
+                names=["weights"+str(i+2), "biase"+str(i+2)])
+            self.embed = tf.nn.relu(tf.add(tf.matmul(self.embed, W2), b2), name = "activation"+str(i+2))
         return self.embed
 
     def compute_loss(self, output, label_tensor):
         with tf.name_scope("output_layer"):
-            self.nce_weights = tf.Variable(tf.truncated_normal([self.vocabulary_size2, self.embedding_size], stddev=1.0 / math.sqrt(self.embedding_size)))
-            self.nce_biases = tf.Variable(tf.zeros([self.vocabulary_size2]))
+            self.nce_weights = tf.Variable(tf.truncated_normal([self.wider_model.vocabulary_size2, self.wider_model.embedding_size], \
+                stddev=1.0 / math.sqrt(self.wider_model.embedding_size)))
+            self.nce_biases = tf.Variable(tf.zeros([self.wider_model.vocabulary_size2]))
 
             if (self.loss == "NCE"):
                 self.loss = tf.reduce_mean(tf.nn.nce_loss(
                     weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
-                    inputs=output, num_sampled=self.num_sampled, num_classes=self.vocabulary_size2))
+                    inputs=output, num_sampled=self.wider_model.neg_sampled_pretraining, num_classes=self.wider_model.vocabulary_size2))
             if (self.loss == "NEG"):
                 self.loss = tf.reduce_mean(tf.nn.sampled_softmax_loss(
                     weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
-                    inputs=output, num_sampled=self.num_sampled, num_classes=self.vocabulary_size2))
+                    inputs=output, num_sampled=self.wider_model.neg_sampled_pretraining, num_classes=self.wider_model.vocabulary_size2))
         return self.loss
 
     def get_predictions(self, output):
@@ -126,8 +76,8 @@ class W2V_Model(object):
     def create_graph(self):
         with tf.name_scope("inputs"):
             self.train_inputs = tf.placeholder(tf.int32, shape=[None])
-            self.train_labels = tf.placeholder(tf.int32, shape=[self.batch_size, 1])
-            self.context_inputs = tf.placeholder(tf.int32, shape=[None, self.seq_length])
+            self.train_labels = tf.placeholder(tf.int32, shape=[self.wider_model.batch_size, 1])
+            self.context_inputs = tf.placeholder(tf.int32, shape=[None, self.wider_model.seq_length])
 
         self.W = self.create_embedding_layer()
         self.output = self.creating_layer(self.train_inputs) if (self.model_type=="skip_gram") else self.creating_layer(self.context_inputs)
@@ -142,7 +92,7 @@ class W2V_Model(object):
         self._sess.run(tf.global_variables_initializer())
         print('Initialized')
 
-        context,labels = self.generate_wholeBatch(self.training_data, skip_window = 6, generate_all_pairs = False)
+        context,labels = generate_wholeBatch(self.training_data, skip_window = 6, generate_all_pairs = False)
         data_idx, epoch, step, average_loss = 0, 0, 0, 0
 
         while (step<15000):
@@ -150,10 +100,10 @@ class W2V_Model(object):
             self.printing_step = 250
 
             if (self.model_type=="skip_gram"):
-                batch_inputs, batch_labels, data_idx = generate_batch(self.batch_size, context, labels, data_idx)
+                batch_inputs, batch_labels, data_idx = generate_batch(self.wider_model.batch_size, context, labels, data_idx)
                 feed_dict = {self.train_inputs: batch_inputs, self.train_labels: batch_labels}
             else:
-                batch_inputs, batch_labels = get_the_next_batch_random(self.X_train, self.Y_train, self.batch_size)
+                batch_inputs, batch_labels = get_the_next_batch_random(self.X_train, self.Y_train, self.wider_model.batch_size)
                 feed_dict = {self.context_inputs: batch_inputs, self.train_labels: np.reshape(batch_labels,(-1,1))}
 
             _, loss_val = self._sess.run([self.optimizer, self.loss], feed_dict=feed_dict)
@@ -172,5 +122,5 @@ class W2V_Model(object):
                     #MPR with G
                     last_predictions = self._sess.run([self.output_distributions], feed_dict={self.train_words:train_words, self.dropout:1})[0]
                     print("########"+ str(i)+ "########")
-                    print_results_predictions(last_predictions, train_words, targets, self.vocabulary_size)
+                    print_results_predictions(last_predictions, train_words, targets, self.wider_model.vocabulary_size)
                     print("")

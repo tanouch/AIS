@@ -9,6 +9,34 @@ import random
 from word2vec_google import *
 from tools_read_data import print_info_on_data
 
+def create_dir(type_of_data):
+    if not os.path.exists(type_of_data):
+        os.makedirs(type_of_data)
+
+def get_co_occurences_dict(data, task_mode):
+    dic = {}
+    for i, elem in enumerate(data):
+        if (task_mode == "item-item"):
+            for e in elem:
+                if e in dic:
+                    dic[e].update(elem)
+                else:
+                    dic[e] = Counter(elem)
+        elif (task_mode == "user-item"):
+            dic[i] = Counter(elem)
+    return dic
+
+def list_elem_not_co_occuring(self, item):
+    if item not in self.model_params.dict_co_occurences:
+        return np.append(np.arange(self.model_params.vocabulary_size2), item)
+    else:
+        return np.append(np.delete(np.arange(self.model_params.vocabulary_size2), list(self.model_params.dict_co_occurences[item])), item)
+
+def get_negatives(self, item, size):
+    co_occuring = list(self.model_params.dict_co_occurences[item])
+    return np.random.choice(np.delete(np.arange(self.model_params.vocabulary_size2), co_occuring), size)
+
+
 def get_the_density_of_the_baskets_length_in_the_data(data):
     length = [len(elem) for elem in data]
     total = len(length)
@@ -17,16 +45,27 @@ def get_the_density_of_the_baskets_length_in_the_data(data):
     cumul = np.column_stack((np.arange(25),np.cumsum(density)))
     print(cumul)
 
-def create_2D_datasets_from_list_of_list(listoflist):
+def create_item_to_item_data(dataset, listoflist, rnd):
     all_pairs = list()
     for elem in listoflist:
         if len(elem)<35:
-            all_pairs.extend(list(itertools.combinations(elem, 3))[:50])
+            all_pairs.extend(list(itertools.combinations(elem, 2))[:50])
         else:
-            all_pairs.extend(list(itertools.combinations(sample(elem, 35), 3))[:50])
+            all_pairs.extend(list(itertools.combinations(sample(elem, 35), 2))[:50])
     arr = np.array(all_pairs)
-    np.random.shuffle(arr)
+    rnd.shuffle(arr)
     print("Number of training pairs", len(arr))
+    return arr
+
+def create_user_to_item_data(dataset, listoflist, rnd):
+    if (dataset=="UK") or (dataset=="Belgian") or (dataset=="netflix") or (dataset=="movielens"):
+        all_pairs = list()
+        for i, elem in enumerate(listoflist):
+            for e in elem:
+                all_pairs.append([i, e])
+        arr = np.array(all_pairs)
+        rnd.shuffle(arr)
+        print("Number of training pairs", len(arr))
     return arr
 
 def counters_per_prod(data):
@@ -88,26 +127,76 @@ def write_results_in_csv(filename, list_of_list):
         csv_writer.writerow(zip(list_of_list[0], list_of_list[1], list_of_list[2], list_of_list[3], list_of_list[4], list_of_list[5]))
 
 def process_and_shuffle_data(self):
-    if (self.dataset=="text8"):
-        top_words_removed_threshold = 25
-        self.data, self.count, self.dictionary, self.reverse_dictionary = build_dataset(self.data, self.vocabulary_size, top_words_removed_threshold)
-        self.data_index = 0
     if (self.type_of_data=="synthetic"):
         self.X, self.Y, self.Z, self.threshold = np.load(self.folder+"X.npy"), np.load(self.folder+"Y.npy"), np.load(self.folder+"Z.npy"), np.load(self.folder+"threshold.npy")
-    if (self.metric=="MPR"):
+    if (self.type_of_data=="real") and (self.dataset != "text8"):
         shuffle(self.data)
-    if (self.metric=="AUC"):
+    if (self.type_of_data=="synthetic") or (self.dataset=="text8"):
         np.random.shuffle(self.data)
 
 def get_vocabulary_size(self):
-    if (self.type_of_data=="synthetic"):
-        self.vocabulary_size, self.vocabulary_size2 = 10000, 10000
-    elif (self.dataset=="text8"):
-        self.vocabulary_size, self.vocabulary_size2 = 20000, 20000
-    elif ("mf" in self.dataset):
-        self.vocabulary_size, self.vocabulary_size2 = (1+max([elem for elem in self.data[:,0]]), 1+max([elem for elem in self.data[:,1]]))
-    else:
-        self.vocabulary_size = 1+max([elem for ss in self.data for elem in ss])      
+    if (self.task_mode=="item-item"):    
+        if (self.type_of_data=="synthetic"):
+            self.vocabulary_size = 10000
+        else:
+            self.vocabulary_size = 1+max([elem for ss in self.data for elem in ss])      
         self.vocabulary_size2 = self.vocabulary_size
+    elif (self.task_mode=="user-item"):
+        self.vocabulary_size, self.vocabulary_size2 = (1+max([elem for elem in self.data[:,0]]), 1+max([elem for elem in self.data[:,1]]))
     return (self.vocabulary_size, self.vocabulary_size2)
 
+def split_data(data):
+    proportion_training, proportion_test = (0.8, 0.2)
+    num_test_instances = int(len(data)*proportion_test)
+    test_data, training_data = data[:num_test_instances], data[num_test_instances:]
+    return test_data, training_data
+
+def he_xavier(in_size, out_size, names):
+    stddev = tf.cast(tf.sqrt(2 / in_size), tf.float32)
+    initializer = tf.contrib.layers.xavier_initializer(uniform=False)
+    W = tf.get_variable(name= names[0], shape=[in_size, out_size], initializer=initializer)
+    b = tf.get_variable(name= names[1], shape=[1,1], initializer=tf.constant_initializer(0.0, dtype=tf.float32))
+    return W, b
+
+def generate_wholeBatch(data, skip_window, generate_all_pairs):
+        context = list()
+        labels = list()
+        for i, sequence in enumerate(data):
+            length = len(sequence)
+            for j in range(length):
+                sub_list = list()
+                if (j - skip_window) >= 0 and (j + skip_window) < length:
+                    sub_list += sequence[j - skip_window:j]
+                    sub_list += sequence[j + 1:j + skip_window + 1]
+                elif j > skip_window:  # => j+skip_window >= length
+                    sub_list += sequence[j - skip_window:j]
+                    if j < (length - 1):
+                        sub_list += sequence[j + 1:length]
+                elif (j + skip_window) < length:
+                    if j > 0:
+                        sub_list += sequence[0:j]
+                    sub_list += sequence[j + 1:j + skip_window + 1]
+                else:
+                    if j > 0:
+                        sub_list += sequence[0:j]
+                    if j < length - 1:
+                        sub_list += sequence[j + 1:length]
+                    if length == 1:
+                        sub_list += sequence[j:j + 1]
+
+                if (generate_all_pairs==True):
+                    for elem in sub_list:
+                        context.append(elem)
+                        labels.append(sequence[j])
+                else:
+                    context.append(sub_list)
+                    labels.append(sequence[j])
+
+        labels = np.array(labels)
+        array_length = len(labels)
+        labels.shape = (array_length,1)
+        context = np.array(context)
+        shuffle_idx = np.random.permutation(array_length)
+        labels = labels[shuffle_idx]
+        context = context[shuffle_idx]
+        return context, labels

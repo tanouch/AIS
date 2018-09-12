@@ -29,12 +29,9 @@ def create_batch(self, size):
     if (self.model_params.metric == "AUC"):
         self.index, batches = get_pairs_batch(self.index, size, self.training_data)
     
-    elif (self.model_params.dataset == "text8"):
-        batches = generate_batch_google(self, num_skips=2, skip_window=1)
-    
     else :
-        if (self.model_params.training_with_pairs):
-            self.index, batches = get_pairs_batch(self.index, size, self.model_params.training_data_pairs)
+        if (self.model_params.working_with_pairs):
+            self.index, batches = get_pairs_batch(self.index, size, self.training_data)
         else:
             seq_length = np.random.randint(8)+2
             batches = get_basket_set_size_training(self.training_data, size, seq_length)
@@ -42,11 +39,10 @@ def create_batch(self, size):
     train_words, label_words = batches[:,:-1], batches[:,1:]
     return train_words, label_words
 
-def training_step(self, list_of_operations_to_run):
-    train_words, label_words = create_batch(self, self.batch_size)
+def training_step(self, list_of_operations_to_run, batch_size):
+    train_words, label_words = create_batch(self, batch_size)
     return self._sess.run(list_of_operations_to_run,
         feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1})
-        
 
 def print_gen_and_disc_losses(self, step):
     print("")
@@ -55,8 +51,8 @@ def print_gen_and_disc_losses(self, step):
         print("Gen losses " + str(self.Gen_loss1) + "  "+ str(self.Gen_loss2))
         print("Disc losses " + str(self.Disc_loss1) + "  "+ str(self.Disc_loss2))
     else:
-        print("Gen losses " + str(self.Gen_loss1/self.printing_step) + "  "+ str(self.Gen_loss2/self.printing_step))
-        print("Disc losses " + str(self.Disc_loss1/self.printing_step) + "  "+ str(self.Disc_loss2/self.printing_step))
+        print("Gen losses " + str(self.Gen_loss1/self.model_params.printing_step) + "  "+ str(self.Gen_loss2/self.model_params.printing_step))
+        print("Disc losses " + str(self.Disc_loss1/self.model_params.printing_step) + "  "+ str(self.Disc_loss2/self.model_params.printing_step))
     print("")
     self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2 = 0, 0, 0, 0
 

@@ -1,96 +1,89 @@
 import numpy as np
+import math
 import os
+import csv
 import matplotlib.pyplot as plt
 from gif_visualisation import *
 from matplotlib.ticker import MultipleLocator
 
-list_of_files = from_path_load_all_images("Results_StructuredPred/W2V/MLE/")
-list_of_files += from_path_load_all_images("Results_StructuredPred/W2V/Softmax/")
+def divide_ais_files(path):
+    list_of_files = os.listdir(path)
+
+def get_all_files_in_a_path_recursively(path):
+    filenames = []
+    for root, d_names, f_names in os.walk(path):
+        filenames += [root+"/"+elem for elem in f_names]
+    return filenames
+
+def get_filenames_per_dataset(datasets, list_of_files):
+    list_of_files_bis = {}
+    for dataset in datasets:
+        list_of_files_bis[dataset] = np.array([elem for elem in list_of_files if dataset in elem])
+    return list_of_files_bis
+
+
+def get_list_without_nan(l):
+    listt = [e for e in l if not math.isnan(e)]
+    if listt==[]:
+        listt = [0.0]
+    return listt
+
+def screen_the_metric(list_of_files, metric_index):
+    return [elem[metric_index] for elem in list_of_files]
+def get_max(list_of_results):
+    return [np.amax(np.array(get_list_without_nan(elem))) for elem in list_of_results]
+def get_argmax(list_of_results):
+    return [np.argmax(np.array(get_list_without_nan(elem))) for elem in list_of_results]
+def get_specific_values(list_of_results, list_of_points, divide_factor):
+    return [elem[point]/divide_factor for (elem,point) in zip(list_of_results, list_of_points)]
+
+def get_best_algo(list_of_files_per_dataset, index):
+    writer = csv.writer(open('results.csv', 'w'), delimiter=",")
+
+    for dataset in list(list_of_files_per_dataset.keys()):
+        print("")
+        print(dataset)    
+        writer.writerow(dataset)
+
+        for algo in ["AIS", "selfplay", "softmax", "uniform", "baseline", "MLE"]:
+
+            files = [elem for elem in list_of_files_per_dataset[dataset] if algo in elem]
+            results = [np.load(elem) for elem in files]
+            mpr = screen_the_metric(results, index)
+
+            best_points = get_max(mpr)
+            best_index = get_argmax(mpr)
+            best_sorted = np.argsort(best_points)
+            
+            best_algo = np.array(files)[best_sorted]
+            best_mpr = np.array(best_points)[best_sorted]
+            best_uncertaincy = get_specific_values(screen_the_metric(results, index+1), best_index, 2)
+            best_uncertaincy = np.array(best_uncertaincy)[best_sorted]
+            
+            final_results = list(zip(*(best_algo, best_mpr, best_uncertaincy)))
+            if (len(final_results)>0):
+                final_results = (final_results[-1][0], str(round(100*final_results[-1][1], 5)) + " +- "+ str(100*round(100*final_results[-1][2], 5)))
+                print(algo, final_results)
+                writer.writerow(final_results)
+            else:
+                print(algo)
+                
+        writer.writerow(" "+"\n")
+                  
+    writer.writerow(" "+"\n")
+    writer.writerow(" "+"\n")
+
+
+path = "Results_StructuredPred/Items_items"
+list_of_files = get_all_files_in_a_path_recursively(path)
 sort_nicely(list_of_files)
-print(np.array(list_of_files))
-#baseline = [np.load(elem) for elem in np.array([elem for elem in list_of_files if "base" in elem])]
-#uniform = [np.load(elem) for elem in np.array([elem for elem in list_of_files if "uniform" in elem])]
-#selfplay = [np.load(elem) for elem in np.array([elem for elem in list_of_files if "selfplay" in elem])]
-#ais = [np.load(elem) for elem in np.array([elem for elem in list_of_files if "AIS" in elem])]
-softmax = [np.load(elem) for elem in np.array([elem for elem in list_of_files if "softmax" in elem])]
-mle = [np.load(elem) for elem in np.array([elem for elem in list_of_files if "MLE" in elem])]
+datasets = ["Belgian", "UK", "movielens", "netflix", "text8"]
+list_of_files_per_dataset = get_filenames_per_dataset(datasets, list_of_files)
 
-#
-iterations = np.arange(0, 400000, 500)
-plt.figure(figsize=(25, 18))
-plt.subplot(151)
-#plt.plot(iterations[:len(selfplay[0][0])], selfplay[0][0], "g-", label="selfplay1")
-#plt.plot(iterations[:len(selfplay[1][0])], selfplay[1][0], "g--", label="selfplay5")
-#plt.plot(iterations[:len(selfplay[2][0])], selfplay[2][0], "g+", label="selfplay25")
-#plt.plot(iterations[:len(selfplay[3][0])], selfplay[3][0], "g*", label="selfplay50")
-#
-#plt.plot(iterations[:len(ais[0][6])], ais[0][6], "y-", label="ais1")
-#plt.plot(iterations[:len(ais[1][6])], ais[1][6], "y--", label="ais5")
-#plt.plot(iterations[:len(ais[2][6])], ais[2][6], "y+", label="ais25")
-#plt.plot(iterations[:len(ais[3][6])], ais[3][6], "y*", label="ais50")
-plt.plot(iterations[:len(softmax[0][0])], softmax[0][0], "c", label="softmax")
-plt.plot(iterations[:len(mle[0][0])], mle[0][0], "r", label="MLE")
-plt.legend(loc=4)
-plt.title("Amazon")
-plt.ylim(ymin=60, ymax=81)
 
-plt.subplot(152)
-#plt.plot(iterations[:len(selfplay[4][0])], selfplay[4][0], "g-", label="selfplay1")
-#plt.plot(iterations[:len(selfplay[5][0])], selfplay[5][0], "g--", label="selfplay5")
-#plt.plot(iterations[:len(selfplay[6][0])], selfplay[6][0], "g+", label="selfplay25")
-#plt.plot(iterations[:len(selfplay[7][0])], selfplay[7][0], "g*", label="selfplay50")
-#
-#plt.plot(iterations[:len(ais[4][6])], ais[4][6], "y-", label="ais1")
-#plt.plot(iterations[:len(ais[5][6])], ais[5][6], "y--", label="ais5")
-#plt.plot(iterations[:len(ais[6][6])], ais[6][6], "y+", label="ais25")
-#plt.plot(iterations[:len(ais[7][6])], ais[7][6], "y*", label="ais50")
-plt.plot(iterations[:len(softmax[1][0])], softmax[1][0], "c", label="softmax")
-plt.plot(iterations[:len(mle[1][0])], mle[1][0], "r", label="MLE")
-plt.legend(loc=4)
-plt.title("Belgian")
-plt.ylim(ymin=88, ymax=92)
-
-plt.subplot(153)
-#plt.plot(iterations[:len(selfplay[8][0])], selfplay[8][0], "g-", label="selfplay1")
-#plt.plot(iterations[:len(selfplay[9][0])], selfplay[9][0], "g--", label="selfplay5")
-#plt.plot(iterations[:len(selfplay[10][0])], selfplay[10][0], "g+", label="selfplay25")
-#plt.plot(iterations[:len(selfplay[11][0])], selfplay[11][0], "g*", label="selfplay50")
-#
-#plt.plot(iterations[:len(ais[8][6])], ais[8][6], "y-", label="ais1")
-#plt.plot(iterations[:len(ais[9][6])], ais[9][6], "y--", label="ais5")
-#plt.plot(iterations[:len(ais[10][6])], ais[10][6], "y+", label="ais25")
-#plt.plot(iterations[:len(ais[11][6])], ais[11][6], "y*", label="ais50")
-plt.plot(iterations[:len(softmax[2][0])], softmax[2][0], "c", label="softmax")
-plt.plot(iterations[:len(mle[2][0])], mle[2][0], "r", label="MLE")
-plt.legend(loc=4)
-plt.title("UK")
-plt.ylim(ymin=80, ymax=92)
-
-plt.subplot(154)
-#plt.plot(iterations[:len(selfplay[12][0])], selfplay[12][0], "g-", label="selfplay1")
-#plt.plot(iterations[:len(selfplay[13][0])], selfplay[13][0], "g--", label="selfplay5")
-#plt.plot(iterations[:len(selfplay[14][0])], selfplay[14][0], "g+", label="selfplay25")
-#plt.plot(iterations[:len(selfplay[15][0])], selfplay[15][0], "g*", label="selfplay50")
-#
-#plt.plot(iterations[:len(ais[12][6])], ais[12][6], "y-", label="ais1")
-#plt.plot(iterations[:len(ais[13][6])], ais[13][6], "y--", label="ais5")
-#plt.plot(iterations[:len(ais[14][6])], ais[14][6], "y+", label="ais25")
-#plt.plot(iterations[:len(ais[15][6])], ais[15][6], "y*", label="ais50")
-plt.plot(iterations[:len(softmax[3][0])], softmax[3][0], "c", label="softmax")
-plt.plot(iterations[:len(mle[3][0])], mle[3][0], "r", label="MLE")
-plt.legend(loc=4)
-plt.title("Movielens")
-plt.ylim(ymin=96, ymax=99)
-
-plt.subplot(155)
-plt.plot(iterations[:len(softmax[4][0])], softmax[4][0], "c", label="softmax")
-plt.plot(iterations[:len(mle[4][0])], mle[4][0], "r", label="MLE")
-plt.legend(loc=4)
-plt.title("Netflix")
-plt.ylim(ymin=94, ymax=96.5)
-
-plt.savefig("fig.pdf")
-
+get_best_algo(list_of_files_per_dataset, 0)
+get_best_algo(list_of_files_per_dataset, 2)
+get_best_algo(list_of_files_per_dataset, 4)
 
 
 def process_data():

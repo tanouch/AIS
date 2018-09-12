@@ -1,9 +1,4 @@
 """Basic word2vec example."""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import collections
 import math
 import os
@@ -25,7 +20,6 @@ def read_data_text8(filename):
     data = tf.compat.as_str(f.read(f.namelist()[0])).split()
   return data
 
-
 def build_dataset(words, n_words, top_words_removed_threshold):
   """Process raw inputs into a dataset."""
   count = [['UNK', -1]]
@@ -39,10 +33,10 @@ def build_dataset(words, n_words, top_words_removed_threshold):
     index = dictionary.get(word, 0)
     if index == 0:  # dictionary['UNK']
       unk_count += 1
-    #elif (index <= top_words_removed_threshold):
-    #  unk_count += 1
-    #else:
-    data.append(index)
+    elif (index <= top_words_removed_threshold):
+      unk_count += 1
+    else:
+      data.append(index)
   count[0][1] = unk_count
   reversed_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
   return data, count, dictionary, reversed_dictionary

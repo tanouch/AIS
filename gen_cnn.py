@@ -31,12 +31,12 @@ class Gen_CNN_Model(object):
         self.printing_step = 100
         self.use_pretrained_embeddings = False
 
-        self.number_of_convolutions = 2
-        self.num_filters = 125
-        self.filter_sizes = [2, 3, 4, 5]
+        self.number_of_convolutions = 1
+        self.num_filters = 150
+        self.filter_sizes = [2, 4, 6, 12]
         self.max_pooling_window = 4
         self.second_filter_size = 3
-        self.num_second_filters = 125
+        self.num_second_filters = 150
 
     def create_embedding_layer(self):
         with tf.name_scope("model"):

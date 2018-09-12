@@ -18,24 +18,24 @@ def create_placeholders(self):
     self.train_words = tf.placeholder(tf.int32, shape=[None, None], name="train_words")
     self.label_words = tf.placeholder(tf.int32, shape=[None, None], name="label_words")
     self.dropout = tf.placeholder(tf.float32, name="dropout")
-    self.popularity_distribution_tensor = tf.tile(tf.reshape(tf.convert_to_tensor(self.popularity_distribution), [1,-1]), [self.batch_size, 1])
 
-    self.context_words = tf.concat([tf.zeros([tf.shape(self.train_words)[0], self.seq_length], dtype=tf.float32), self.train_words])[:,:self.seq_length] if (self.model_params.D_type=='LSTM') \
-        else tf.tile(self.train_words, tf.constant([1, self.seq_length]))[:,:self.seq_length]
-    return self.train_words, self.label_words, self.dropout, self.popularity_distribution_tensor, self.context_words    
+    if (self.model_params.D_type=='LSTM') and (self.model_params.G_type=='LSTM'):
+        self.context_words = tf.concat([tf.zeros([tf.shape(self.train_words)[0], self.seq_length], dtype=tf.float32), self.train_words])[:,:self.seq_length]
+    elif (self.model_params.D_type=='CNN') or (self.model_params.G_type=='CNN'):
+        self.context_words = tf.tile(self.train_words, tf.constant([1, self.seq_length]))[:,:self.seq_length]
+    else:
+        self.context_words = self.train_words
+    
 
 def create_generator(self):
     with tf.variable_scope("generator") as scope:
-        if (self.model_params.G_type=='LSTM'):
-            self.context_words = tf.concat([tf.zeros([tf.shape(self.train_words)[0], self.seq_length], dtype=tf.float32), self.train_words])[:,:self.seq_length]
-        if (self.model_params.G_type=='CNN') or (self.model_params.G_type=='w2v'):
-            self.context_words = tf.tile(self.train_words, tf.constant([1, self.seq_length]))[:,:self.seq_length]
         if (self.model_params.G_type=='LSTM'):
             self.generator = LSTM_Model(self)
         if (self.model_params.G_type=='CNN'):
             self.generator = Gen_CNN_Model(self)
         if (self.model_params.G_type=='w2v'):
-            self.generator = W2V_Model(self)
+            self.generator = W2V_Model(self, 1)
+
         self.generator.create_embedding_layer()
         self.generator.embeddings_tensorflow = self.generator.embeddings(tf.constant(np.arange(self.vocabulary_size2), dtype=tf.int32))
         self.output_g = self.generator.creating_layer(self.context_words, self.dropout)
@@ -56,7 +56,8 @@ def create_discriminator(self):
         if (self.model_params.D_type=='CNN'):
             self.discriminator = Gen_CNN_Model(self)
         if (self.model_params.D_type=='w2v'):
-            self.discriminator = W2V_Model(self)
+            self.discriminator = W2V_Model(self, 2)
+
         self.discriminator.create_embedding_layer()
         self.discriminator.embeddings_tensorflow = self.discriminator.embeddings(tf.constant(np.arange(self.vocabulary_size2), dtype=tf.int32))
         self.output_d = self.discriminator.creating_layer(self.context_words, self.dropout)
@@ -77,18 +78,17 @@ def get_adv_samples(self, argument, number):
     def sample_no_replacement(x):
         x = tf.nn.softmax(x)
         return tf.cast(tf.py_func(np.random.choice, [self.vocabulary_size2, number, False, x+1e-10], tf.int64), tf.int32)
-
     switcher = {
         "stochastic": tf.multinomial(self.before_softmax_G, num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
         "no_stochastic": tf.reshape(tf.stack(tf.map_fn(sample_no_replacement, self.before_softmax_G, dtype=tf.int32)), [tf.shape(self.train_words)[0], number]),
         "argmax": tf.nn.top_k(self.before_softmax_G, k=number)[1]
     }
     return switcher.get(argument, "nothing")
+
 def get_random_samples(self, argument, number):
     switcher = {
         "uniform": tf.random_uniform(shape=[tf.shape(self.train_words)[0], number], minval=0, maxval=self.vocabulary_size2-1, dtype=tf.int32, seed=self.model_params.seed),
         "one": tf.random_uniform(shape=[tf.shape(self.train_words)[0], number], minval=self.one_guy_sample, maxval=self.one_guy_sample+1, dtype=tf.int32, seed=self.model_params.seed),
-        #"popularity": tf.multinomial(self.popularity_distribution_tensor, num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
     }
     return switcher.get(argument, "nothing")
 
@@ -104,35 +104,21 @@ def discriminator_adversarial_loss(self):
                 tf.nn.embedding_lookup(self.discriminator.nce_biases, elem)
         return tf.reduce_sum(tf.multiply(embedding, nce_weights), axis=1) + nce_biases
 
-    #Get values for the targets
-    #self.true_valuesD = tf.reshape(tf.stack(tf.map_fn(fn, (self.before_softmax_D, self.label_words[:,-1]), dtype=tf.float32, name="true_values")), [-1])
-    self.true_valuesD = tf.reshape(tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, tf.reshape(self.label_words[:,-1], (-1, 1))), dtype=tf.float32, name="true_values")), [-1])
+    self.disc_true_values = tf.reshape(tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, tf.reshape(self.label_words[:,-1], (-1, 1))), dtype=tf.float32, name="true_values")), [-1])
     self.disc_self_samples = get_adv_samples(self, self.discriminator_samples_type[0], self.adv_negD)
+    self.disc_self_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_self_samples), dtype=tf.float32, name="disc_self_values"))
     self.disc_random_samples = get_random_samples(self, self.discriminator_samples_type[1], self.random_negD)
-
-    #Sampled Softmax loss
-    #if (self.adv_discriminator_loss[0]=="softmax"):
-        #true_elems_softmax = (self.output_distributions_D, self.label_words[:,-1]) #true_values_softmax = tf.log(tf.reshape(tf.stack(tf.map_fn(true_fn, true_elems_softmax, dtype=tf.float32, name="disc_values")), [-1])) #loss = tf.reduce_sum(true_values_softmax)
-        #loss = -tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels= tf.one_hot(tf.reshape(self.label_words[:,-1], [-1]), self.vocabulary_size), logits=self.before_softmax_D))
 
     if ("SS" in self.adv_discriminator_loss[0]):
         self.disc_fake_samples = tf.concat([self.disc_self_samples, self.disc_random_samples, tf.reshape(self.label_words[:,-1], (-1, 1))], axis=1)
-        #self.fake_values = tf.transpose(tf.stack(tf.map_fn(fake_fn, tf.transpose(self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values")))
-        self.fake_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values"))
-        if (self.adv_discriminator_loss[0]=="SS"):
-            loss = tf.reduce_sum(self.true_valuesD) - tf.reduce_sum(tf.log(tf.reduce_sum(tf.exp(self.fake_values), axis=1)))
-        if (self.adv_discriminator_loss[0]=="SS_self"):
-            loss = tf.reduce_sum(self.true_valuesD) - tf.reduce_sum(tf.reduce_mean(self.fake_values, axis=1))
+        self.disc_fake_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values"))
+        loss = tf.reduce_sum(self.disc_true_values) - tf.reduce_sum(tf.log(tf.reduce_sum(tf.exp(self.disc_fake_values), axis=1)))
+        #loss = tf.reduce_sum(self.disc_true_values) - tf.reduce_sum(tf.reduce_mean(self.disc_fake_values, axis=1))
 
-    #Binary cross entropy as in GANs
     if (self.adv_discriminator_loss[0]=="BCE"):
         self.disc_fake_samples = tf.concat([self.disc_self_samples, self.disc_random_samples], axis=1)
-        #self.fake_values = tf.transpose(tf.stack(tf.map_fn(fake_fn, tf.transpose(self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values")))
-        self.fake_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values"))
-        loss = tf.reduce_sum(tf.log(tf.sigmoid(self.true_valuesD))) + tf.reduce_sum(tf.log(1-tf.sigmoid(self.fake_values)))
-    
-    if ("SS" in self.adv_discriminator_loss[0]) or (self.adv_discriminator_loss[0]=="BCE"):
-        self.true_values_sigmoid, self.fake_values_sigmoid = tf.sigmoid(self.true_valuesD), tf.sigmoid(self.fake_values)
+        self.disc_fake_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_fake_samples), dtype=tf.float32, name="disc_fake_values"))
+        loss = tf.reduce_sum(tf.log(tf.sigmoid(self.disc_true_values))) + tf.reduce_sum(tf.log(1-tf.sigmoid(self.disc_fake_values)))
         
     return loss
 
@@ -156,18 +142,12 @@ def generator_adversarial_loss(self):
                 tf.nn.embedding_lookup(self.generator.nce_biases, items)
         return tf.reduce_sum(tf.multiply(embedding, nce_weights), axis=1) + nce_biases
 
-    #true_values = tf.reshape(tf.stack(tf.map_fn(true_fn, (self.before_softmax_G, self.label_words[:,-1]), dtype=tf.float32, name="true_values")), [-1])
-    self.true_valuesG = tf.reshape(tf.stack(tf.map_fn(fn_G_improved, (self.output_g, tf.reshape(self.label_words[:,-1], (-1, 1))), dtype=tf.float32, name="true_values")), [-1])
+    self.gen_true_values = tf.reshape(tf.stack(tf.map_fn(fn_G_improved, (self.output_g, tf.reshape(self.label_words[:,-1], (-1, 1))), dtype=tf.float32, name="true_values")), [-1])
     self.gen_self_samples = get_adv_samples(self, self.generator_samples_type[0], self.adv_negG)
     self.gen_random_samples = get_random_samples(self, self.generator_samples_type[1], self.random_negG)
     self.gen_true_samples = tf.reshape(self.label_words[:,-1], (-1, 1))
-    self.gen_fake_samples = tf.concat([self.gen_self_samples, self.gen_random_samples, self.gen_true_samples], axis=1)
 
-    fake_elems = (self.output_g, self.gen_fake_samples)
-    self.gen_fake_values = tf.stack(tf.map_fn(fn_G_improved, fake_elems, dtype=tf.float32, name="true_values")) 
-    #self.gen_fake_values = tf.transpose(tf.stack(tf.map_fn(fn_G, tf.transpose(self.gen_fake_samples), dtype=tf.float32, name="gen_fake_values")))
-
-    if (self.adv_generator_loss[0]=="MALIGAN"):
+    if (self.model_params.model_type=="MALIGAN"):
         self.gen_fake_samples = tf.concat([self.gen_self_samples, self.gen_random_samples], axis=1)
         self.log_p_g = tf.log(tf.sigmoid(tf.transpose(tf.stack(tf.map_fn(fn_G, tf.transpose(self.gen_fake_samples), dtype=tf.float32)))))
         self.p_d = tf.sigmoid(tf.transpose(tf.stack(tf.map_fn(fn_D, tf.transpose(self.gen_fake_samples), dtype=tf.float32))))
@@ -175,25 +155,26 @@ def generator_adversarial_loss(self):
         self.r_d = (self.r_d/tf.reduce_sum(self.r_d))
         gen_loss = tf.reduce_sum(tf.multiply(self.log_p_g, self.r_d))
 
-    if (self.adv_generator_loss[0]=="ADV_NS"):
-        gen_loss = tf.reduce_sum(self.true_valuesG) - tf.reduce_sum(tf.log(tf.reduce_sum(tf.exp(self.gen_fake_values), axis=1)))
-
-    if ("ADV_IS" in self.adv_generator_loss[0]=="ADV_IS") :        
-        def get_gen_fake_values_D(argument):
-            switcher = {
-                "ADV_IS": tf.sigmoid(-self.gen_fake_values_D), #tf.nn.softmax(-gen_fake_values_D),
-                "Inverse_ADV_IS": tf.nn.softmax(self.gen_fake_values_D),
-                "Random_ADV_IS": tf.random_uniform([tf.shape(self.gen_fake_values)[0], tf.shape(self.gen_fake_values)[1]], minval=0, maxval=1),
-                "Uniform_ADV_IS": tf.ones([tf.shape(self.gen_fake_values)[0], tf.shape(self.gen_fake_values)[1]]),
-                "Normal_ADV_IS":  self.gen_fake_values_D
-            }
-            return switcher.get(argument, "nothing")
+    if ("AIS" in self.model_params.model_type):
+        self.gen_fake_samples = tf.concat([self.gen_self_samples, self.gen_random_samples, self.gen_true_samples], axis=1) \
+            if (self.model_params.model_type=="AIS") else tf.concat([self.gen_self_samples, self.gen_random_samples], axis=1)
+        self.gen_fake_values = tf.stack(tf.map_fn(fn_G_improved, (self.output_g, self.gen_fake_samples), dtype=tf.float32, name="true_values")) 
         self.gen_fake_values_D = tf.stack(tf.map_fn(fn_D_improved, (self.output_d, self.gen_fake_samples), dtype=tf.float32, name="true_values"))
-        #gen_fake_values_D = tf.transpose(tf.stack(tf.map_fn(fn_D, tf.transpose(self.gen_fake_samples), dtype=tf.float32, name="gen_fake_values_D")))
-        self.gen_fake_values_D = get_gen_fake_values_D(self.adv_generator_loss[0])
-        #gen_loss = tf.reduce_sum(self.true_valuesG) - tf.reduce_sum(tf.multiply(self.gen_fake_values, gen_fake_values_D))
+
+        self.gen_fake_values_D_sigmoid = tf.sigmoid(self.gen_fake_values_D)
+        self.gen_fake_values_D_softmax = tf.nn.softmax(self.gen_fake_values_D)
+        self.gen_true_values_D_sigmoid = self.gen_fake_values_D_sigmoid[:,-1]
+        self.gen_true_values_D_softmax = self.gen_fake_values_D_softmax[:,-1]
+
+        self.gen_fake_values_D = tf.sigmoid(-self.gen_fake_values_D)
+        #self.gen_fake_values_D = tf.nn.softmax(-self.gen_fake_values_D)
+        self.gen_true_values_D = self.gen_fake_values_D[:,-1]
         
-        gen_loss = tf.reduce_sum(self.true_valuesG) - tf.reduce_sum(tf.log(tf.reduce_sum(tf.multiply(tf.exp(self.gen_fake_values), self.gen_fake_values_D), axis=1)))
+        if (self.model_params.model_type=="AIS"):
+            gen_loss = tf.reduce_sum(tf.multiply(self.gen_true_values, self.gen_true_values_D)) - tf.reduce_sum(tf.log(tf.reduce_sum(tf.exp(tf.multiply(self.gen_fake_values, self.gen_fake_values_D)), axis=1)))
+        if (self.model_params.model_type=="AIS-BCE"):
+            gen_loss = tf.reduce_sum(self.gen_true_values) + tf.reduce_sum(tf.multiply(tf.log(1-tf.sigmoid(self.gen_fake_values)), self.gen_fake_values_D))
+
     return gen_loss
 
 def get_network_variables(self, name_of_the_network):

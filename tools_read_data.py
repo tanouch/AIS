@@ -1,11 +1,19 @@
 import copy
-from random import shuffle
+from random import shuffle, sample
 import itertools
 import csv
 from tqdm import tqdm
 import numpy as np
 from collections import Counter
 import random
+import collections
+import math
+import os
+import sys
+import argparse
+from tempfile import gettempdir
+import zipfile
+from word2vec_google import read_data_text8, build_dataset
 
 ##############
 #Read the different datasets
@@ -15,9 +23,9 @@ def print_info_on_data(data, size_threshold):
     num_seq = len(data)
     num_seq_smaller_than = sum([Counterr[i] for i in range(1,size_threshold+1)])
     print("Number of users = "+ str(len(data)))
-    print('max length basket= ', max([len(elem) for elem in data]))
-    print('vocabulary size ', max([max(elem) for elem in data]))
-    print('proportion of baskets with size below ', str(size_threshold),' ', 100*num_seq_smaller_than/num_seq)
+    print('max length basket = ', max([len(elem) for elem in data]))
+    print('vocabulary size = ', 1+max([max(elem) for elem in data]))
+    print('proportion of baskets with size below = ', str(size_threshold),' ', 100*num_seq_smaller_than/num_seq)
 
 def read_data(data_file_path):
     data = [[]]
@@ -36,7 +44,6 @@ def get_data(input_file):
         for line in f:
             sub_data = line.split(" ")
             data.append([int(elem) for elem in sub_data if elem != "\n"])
-            data.append([float(elem) for elem in sub_data if elem != "\n"])
     return data
 
 def get_data_movies_datasets(input_file):
@@ -77,9 +84,7 @@ def read_data_UK_retail(data_file_path):
                         num_of_ids += 1
             i += 1
     baskets = [dict_basket[key] for key in sorted(list(dict_basket.keys()))]
-    #dict_from_ids_to_items = {v: k for k, v in dict_from_items_to_ids.items()}
     dict_from_ids_to_descriptions = {v: dict_from_items_to_desc[k] for k, v in dict_from_items_to_ids.items()}
-    #print(dict_from_ids_to_descriptions)
     print(num_of_ids)
     return baskets, dict_from_ids_to_descriptions
 
@@ -103,18 +108,21 @@ def load_NYtimes_dataset(data_file_path):
                     list_of_baskets[-1].append(dict_word_to_ids[word])
     return np.array(list_of_baskets)
 
-def read_data_text8(filename):
-    """Extract the first file enclosed in a zip file as a list of words."""
-    with zipfile.ZipFile(filename) as f:
-        data = tf.compat.as_str(f.read(f.namelist()[0])).split()
-    return data
+def create_text8_dataset(filename):
+    data = read_data_text8(filename)
+    n_words, top_words_removed_threshold = 12000, 25
+    data, count, dictionary, reversed_dictionary = \
+        build_dataset(data, n_words, top_words_removed_threshold)
+    pairs = np.array([[data[i], data[i+1]] for i in range(len(data)-1)])
+    return pairs, reversed_dictionary
+    
 
 def load_data(self):
     dictionnary = {}
     if self.dataset == "text8":
-        data = read_data_text8("datasets/text8.zip")
+        data, dictionnary = create_text8_dataset("datasets/text8.zip")
         folder = "datasets/text8/"
-        metric = "Analogy"
+        metric = "MPR"
         type_of_data = "real"
     if self.dataset == "NYtimes":
         data = load_NYtimes_dataset("datasets/NYtimes.twords")
@@ -198,4 +206,5 @@ def load_data(self):
         type_of_data = "synthetic"
     
     print_info_on_data(data, self.max_basket_size)
+    data = [sample(elem, min(len(elem), self.max_basket_size)) for elem in data]
     return data, folder, metric, type_of_data, dictionnary

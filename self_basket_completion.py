@@ -24,12 +24,12 @@ class Self_Basket_Completion_Model(object):
         self.model_params = model
         self.train_data, self.test_data, self.X_train, self.Y_train, self.X_test, self.Y_test = list(), list(), list(), list(), list(), list()
         self.LSTM_labels_train, self.LSTM_labels_test = list(), list()
-        self.index, self.printing_step = 0, 500
+        self.index = 0
         self.neg_sampled = model.neg_sampled
         self.neg_sampled_pretraining = 1 if self.neg_sampled<1 else self.neg_sampled
 
         self.training_data, self.test_data, self.test_list_batches = model.training_data, model.test_data, model.test_list_batches
-        self.num_epochs, self.batch_size, self.vocabulary_size, self.vocabulary_size2, self.popularity_distribution = model.epoch, model.batch_size, model.vocabulary_size, model.vocabulary_size2, model.popularity_distribution
+        self.num_epochs, self.batch_size, self.vocabulary_size, self.vocabulary_size2 = model.epoch, model.batch_size, model.vocabulary_size, model.vocabulary_size2
         self.seq_length, self.epoch = model.seq_length, model.epoch
         self.embedding_size, self.embedding_matrix, self.use_pretrained_embeddings = model.embedding_size, model.embedding_matrix, model.use_pretrained_embeddings
         self.adv_generator_loss, self.adv_discriminator_loss = model.adv_generator_loss, model.adv_discriminator_loss
@@ -37,12 +37,11 @@ class Self_Basket_Completion_Model(object):
         self.discriminator_type = model.D_type
         self.discriminator_samples_type = model.discriminator_samples_type
         self.one_guy_sample = np.random.choice(self.vocabulary_size-1)
-        self.main_scoreD, self.confintD, self.p1D, self.confintp1D, self.p1pD, self.confintp1pD, self.true_neg_prop = \
-            list(), list(), list(), list(), list(), list(), list()
+        self.dataD = [list(), list(), list(), list(), list(), list(), list()]
+        self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0
 
     def create_graph(self):
-        self.train_words, self.label_words, self.dropout, self.popularity_distribution_tensor, self.context_words = \
-            create_placeholders(self)
+        create_placeholders(self)
         create_discriminator(self)
         self.before_softmax_G = self.before_softmax_D
         if (self.model_params.model_type=="selfplay") or (self.model_params.model_type=="uniform") :
@@ -61,41 +60,41 @@ class Self_Basket_Completion_Model(object):
         self._sess = tf.Session()
         self._sess.run(tf.global_variables_initializer())
         step, cont = 0, True
-        self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0
         disc_loss1, disc_loss2 = 0, 0
 
-        #self.options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE) #self.run_metadata = tf.RunMetadata()
         while cont:
             try:
                 if (np.random.uniform()<self.neg_sampled):
                     if (self.model_params.model_type=="baseline"):
-                        _, disc_loss1 = training_step(self, list_of_operations_to_run=[self.d_baseline, self.d_loss1])
+                        _, disc_loss1 = training_step(self, [self.d_baseline, self.d_loss1], self.batch_size)
                     elif (self.model_params.model_type=="softmax"):
-                        _, disc_loss1 = training_step(self, list_of_operations_to_run=[self.d_softmax, self.softmax_loss])
+                        _, disc_loss1 = training_step(self, [self.d_softmax, self.softmax_loss], self.batch_size)
                     elif (self.model_params.model_type=="MLE"):
-                        _, disc_loss1 = training_step(self, list_of_operations_to_run=[self.d_mle, -self.mle_lossD])
+                        _, disc_loss1 = training_step(self, [self.d_mle, -self.mle_lossD], self.batch_size)
                     else:
-                        _, disc_loss1, disc_loss2 = training_step(self, list_of_operations_to_run=[self.d_train_adversarial, self.d_loss1, self.d_loss2])
+                        _, disc_loss1, disc_loss2 = training_step(self, [self.d_train_adversarial, self.d_loss1, self.d_loss2], self.batch_size)
                 else:
-                    _, disc_loss1 = training_step(self, list_of_operations_to_run=[self.d_mle, -self.mle_lossD])
+                    _, disc_loss1 = training_step(self, [self.d_mle, -self.mle_lossD], self.batch_size)
                 
                 self.Disc_loss1, self.Disc_loss2 = (self.Disc_loss1+disc_loss1, self.Disc_loss2+disc_loss2)
 
                 if (math.isnan(disc_loss1)) or (math.isnan(disc_loss2)):
                     cont = False
-                if (step > self.model_params.min_steps) and early_stopping(self.main_scoreD, 15):
+                if (step > self.model_params.min_steps) and (early_stopping(self.dataD[0], 4) or early_stopping(self.dataD[2], 4)):
                     cont = False
+                if (step%2500==0):
+                    self.save_data()
                     
-                cont, step = testing_step(self, step, cont), step+1
+                testing_step(self, step)
+                step += 1
             
             except KeyboardInterrupt:
-                self.save_data()
-                raise
-
+                cont = False
+        
         self.save_data()
+        tf.reset_default_graph()
     
     def save_data(self):
-        data = np.array([self.main_scoreD, self.confintD, self.p1D, self.confintp1D, self.p1pD, self.confintp1pD, self.true_neg_prop])
-        print(data)
-        if (self.model_params.metric=="MPR") or (self.model_params.metric=="AUC"):
-            np.save(self.model_params.name, data)
+        data = np.array(self.dataD)
+        np.save(self.model_params.name, data)
+        np.save(self.model_params.name+"_emb", self._sess.run(self.discriminator.embeddings_tensorflow))

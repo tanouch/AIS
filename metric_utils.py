@@ -2,33 +2,27 @@ import math
 import numpy as np
 import random
 import matplotlib.pyplot as plt
-from scipy.stats import norm, describe
+from scipy.stats import norm, describe, rankdata
 from sklearn.metrics import roc_auc_score
 
 from tools import *
 from training_utils import create_batch, print_gen_and_disc_losses, early_stopping
 
-def testing_step(self, step, cont):
-    if (step % self.printing_step == 0):
+def testing_step(self, step):
+    if (step % self.model_params.printing_step == 0):
         print_gen_and_disc_losses(self, step)
 
-    if (step % self.printing_step == 0):
-        if (self.model_params.metric=="MPR"):
-            print_confidence_intervals(self)
-            if (self.model_params.neg_sampled>1) and (self.model_params.model_type != "baseline"):
-                get_proportion_same_element(self)
-        
-        if (self.model_params.metric=="AUC"):
-            get_auc_and_true_neg_proportion(self)
+    if (step % self.model_params.printing_step == 0):
+        print("Step", str(step))
+        if (self.model_params.type_of_data=="real"):
+            calculate_mpr(self)
+            calculate_auc_discriminator(self, step)
+            calculate_proportion_same_element(self, step)
+            check_similarity(self, step)
+       
+        if (self.model_params.type_of_data=="synthetic"):
+            get_auc_synthetic_data(self)
 
-        if (self.model_params.metric=="Analogy"):
-            check_analogy(self)
-            np.save("nlp/"+self.model_params.name+"_embeddings", self._sess.run([self.discriminator.embeddings_tensorflow])[0])
-
-    if (step > self.model_params.min_steps) and early_stopping(self.main_scoreD, 15):
-        cont = False
-
-    return cont
 
 def print_results_predictions(last_predictions, batch_inputs, targets, vocabulary_size):
     predictions_for_targets = 100*np.mean(np.array([last_predictions[i][int(targets[i])] for i in range(len(batch_inputs))]))
@@ -47,11 +41,6 @@ def print_results_predictions(last_predictions, batch_inputs, targets, vocabular
     MPR_sorted = 100*np.mean(np.array(predictions_sorted))
     predictions_sorted_random = [1-(len(np.where(last_predictions[i]>last_predictions[i][int(np.random.random_integers(vocabulary_size-1))])[0])/vocabulary_size) for i in range(len(batch_inputs))]
     return predictions_top_one, predictions_top_one_percent, MPR_sorted
-    #plt.figure(figsize=(15, 5))
-    #plt.hist(predictions_for_random.flatten(), bins=150, range=(0,np.percentile(last_predictions[0], 95)), alpha=0.5, normed=True, label="randoms")
-    #plt.hist(predictions_for_targets.flatten(), bins=150, range=(0,np.percentile(last_predictions[0], 95)), alpha=0.5, normed=True, label="targets")
-    #plt.legend()
-    #plt.savefig("image")
 
 def get_conf_int(data, num_X_val):
     return norm.interval(0.95, loc=np.mean(np.array(data)), scale=np.std(np.array(data))/math.sqrt(num_X_val))
@@ -67,10 +56,10 @@ def append_lists_with_zeros(list_of_lists):
     for elem in list_of_lists:
         elem.append(0.0)
 
-def print_confidence_intervals(self):
+def calculate_mpr_baskets(self):
     all_MPRs_G, all_MPRs_D, all_precisions_1G, all_precisions_1D, all_precisions_1pG, all_precisions_1pD = list(), list(), list(), list(), list(), list()
     numbers = [len(elem) for elem in self.test_list_batches][2:]
-    number_of_cross_validations = 6
+    number_of_cross_validations = 5
     for k in range(number_of_cross_validations):
         MPR_G, MPR_D, p1G, p1D, p1pG, p1pD = list(), list(), list(), list(), list(), list()
 
@@ -80,7 +69,7 @@ def print_confidence_intervals(self):
                 batches = self.test_list_batches[i][batches_selected]
                 train_words, targets = batches[:,:-1], np.reshape(batches[:,-1], (-1,1))
                 append_results_MPR_and_prec(self, i, self.before_softmax_D, MPR_D, p1D, p1pD, train_words, targets)
-                if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
+                if ("AIS" in self.model_params.model_type) or (self.model_params.model_type=="MALIGAN"):
                     append_results_MPR_and_prec(self, i, self.before_softmax_G, MPR_G, p1G, p1pG, train_words, targets)
             else:
                 append_lists_with_zeros([MPR_G, MPR_D, p1G, p1D, p1pG, p1pD])
@@ -88,7 +77,7 @@ def print_confidence_intervals(self):
         all_MPRs_D.append(np.dot(np.array(numbers), np.array(MPR_D))/np.sum(numbers))
         all_precisions_1D.append(np.dot(np.array(numbers), np.array(p1D))/np.sum(numbers))
         all_precisions_1pD.append(np.dot(np.array(numbers), np.array(p1pD))/np.sum(numbers))
-        if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
+        if ("AIS" in self.model_params.model_type) or (self.model_params.model_type=="MALIGAN"):
             all_MPRs_G.append(np.dot(np.array(numbers), np.array(MPR_G))/np.sum(numbers))
             all_precisions_1G.append(np.dot(np.array(numbers), np.array(p1G))/np.sum(numbers))
             all_precisions_1pG.append(np.dot(np.array(numbers), np.array(p1pG))/np.sum(numbers))
@@ -105,7 +94,7 @@ def print_confidence_intervals(self):
 
     print_confidence_intervals_aux([self.main_scoreD, self.confintD, self.p1D, self.confintp1D, self.p1pD, self.confintp1pD], mpr, p1, p1p)
 
-    if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
+    if ("AIS" in self.model_params.model_type) or (self.model_params.model_type=="MALIGAN"):
         mpr, p1, p1p = get_conf_int(all_MPRs_G, 5), get_conf_int(all_precisions_1G, 5), get_conf_int(all_precisions_1pG, 5)
         print("Results for G " + "MPR "+ str(mpr)+ " P@1 "+ str(p1)+ " P@1p " + str(p1p))
         print_confidence_intervals_aux([self.main_scoreG, self.confintG, self.p1G, self.confintp1G, self.p1pG, self.confintp1pG], mpr, p1, p1p)
@@ -123,20 +112,71 @@ def get_proportion_of_true_negatives(Z, threshold, speeding_factor, negative_sam
     true_neg_prop = 100*len(true_negatives)/len(negative_samples)
     return true_neg_prop, np.array(true_negatives), np.array(false_negatives)
 
-def calculate_auc(self):
-    positive_samples = self.test_data[np.random.choice(len(self.test_data), size=1000)]
-    negative_samples = [(np.random.randint(self.vocabulary_size), np.random.randint(self.vocabulary_size)) for elem in range(5000)]
-    _, negative_samples, _ = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, \
-        self.model_params.speeding_factor, negative_samples)
 
-    positive_samples_new = (positive_samples/self.model_params.speeding_factor).astype(int)
-    negative_samples_new = (negative_samples/self.model_params.speeding_factor).astype(int)
-    positive_scores = [self.heatmap[elem[0], elem[1]] for elem in positive_samples_new]
-    negative_scores = [self.heatmap[elem[0], elem[1]] for elem in negative_samples_new]
-    scores = positive_scores+negative_scores
-    labels = np.array([1]*len(positive_samples) + [0]*len(negative_samples))
-    auc_score = roc_auc_score(labels, scores)
-    return auc_score
+def calculate_mpr(self):
+    if self.model_params.working_with_pairs:
+        calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "Disc")
+        if ("AIS" in self.model_params.model_type):
+            calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "Gen")
+    else:    
+        calculate_mpr_baskets(self)
+
+def mpr_func(self, batches, label_words, distributions):
+    if (len(batches[0])==2):
+        mpr, prec1 = 0, 1
+        for k in range(len(batches)):
+            l = list_elem_not_co_occuring(self, label_words[k][0])
+            rank = rankdata(distributions[k][l])[-1]
+            prec1 = prec1+1 if (rank>(len(l)-2)) else prec1
+            mpr += rank/len(l)
+        mpr /= len(batches)
+        prec1 /= len(batches)
+    
+    else:
+        mpr = np.mean(np.array([rankdata(distributions[k])[label_words[k]]/self.model_params.vocabulary_size \
+                for k in range(len(batches))]))
+        prec1 = 1
+    return mpr, prec1
+
+
+def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
+    mprs, aucs, prec1s = list(), list(), list()
+    batch = self.test_data[:10000]
+    for i in range(5):
+        batches = batch[np.random.choice(len(batch), size=7000)]
+        context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
+
+        if self.model_params.use_pretrained_embeddings:
+            user_embeddings = self.model_params.user_embeddings[batches[:,0]]
+            distributions = np.matmul(user_embeddings, np.transpose(self.model_params.items_embeddings))
+            #distributions = np.exp(distributions)/np.sum(np.exp(distributions), axis=1, keepdims=True)
+            
+        else:
+            distributions = self._sess.run(op, \
+                feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
+        
+        positive_scores = [distributions[i][label_words[i][0]] for i in range(len(batches))]
+        negative_scores = [distributions[i][e] for i in range(len(batches)) for e in get_negatives(self, label_words[i][0], 10)] \
+            if (len(batches[0])==2) else [distributions[i][e] for e in np.random.choice(self.model_params.vocabulary_size, 10) for i in range(len(batches))]
+        
+        labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
+        aucs.append(roc_auc_score(labels, logits))
+        
+        mpr, prec1 = mpr_func(self, batches, label_words, distributions)
+        mprs.append(mpr)
+        prec1s.append(prec1)
+    
+    mpr = get_conf_int(mprs, 5)
+    auc = get_conf_int(aucs, 5)
+    prec1 = get_conf_int(prec1s, 5)
+    print(net, "auc", auc, "mpr", mpr, "prec1", prec1)
+
+    res = [mpr, auc, prec1]
+    for i in range(3):
+        list_of_logs[2*i].append((res[i][0]+res[i][1])/2)
+        list_of_logs[2*i + 1].append(res[i][1]-res[i][0])
+    
+    return mpr, auc
 
 def get_heatmap_density(self, positive_samples, output_distributions):
     heatmap = np.zeros((int(self.vocabulary_size/self.model_params.speeding_factor), int(self.vocabulary_size/self.model_params.speeding_factor)))
@@ -185,10 +225,6 @@ def print_samples_and_KDE_density(self, context_words, negative_samples, output_
     return true_neg_prop
 
 
-def create_dir(type_of_data):
-    if not os.path.exists(type_of_data):
-        os.makedirs(type_of_data)
-
 def get_auc_synthetic_data(self):
     print("")
     batches = self.test_data[np.random.choice(len(self.test_data), size=2500)]
@@ -199,19 +235,17 @@ def get_auc_synthetic_data(self):
 
     print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, False, "DISC")
     true_neg_prop = print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, True, "DISC")
-    auc_score = calculate_auc(self)
-    print("Model" + self.model_params.model_type + " disc " + str(auc_score))
+    mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD)
 
     if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
         output_distributions, negative_samples= self._sess.run([self.output_distributions_G , self.gen_fake_samples], \
             feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
         print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, False, "GEN")
         true_neg_prop = print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, True, "GEN")
-        auc_score = calculate_auc(self)
-        print("Model" + self.model_params.model_type + " gen " + str(auc_score))
+        mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG)
 
     print("")
-    return true_neg_prop, auc_score
+
 
 def get_auc_real_data(self):
     positive_samples = self.test_data[np.random.choice(len(self.test_data), size=5000)]
@@ -233,8 +267,8 @@ def get_auc_real_data(self):
         append_res(self.score_target_D, auc_scoresD)
         if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
             append_res(self.score_target_G, auc_scoresG)
-
     print("")
+
     def get_auc_real_data_aux(l, auc, model):
         auc = get_conf_int(auc, 5)
         print("AUC score for " + model + str(auc))
@@ -246,23 +280,18 @@ def get_auc_real_data(self):
             get_auc_real_data_aux([self.main_scoreG, self.confintG], auc_scoresG, "generator")
     print("")
 
-def get_auc_and_true_neg_proportion(self):
-    if (self.model_params.type_of_data=="synthetic"):
-        get_auc_synthetic_data(self)
-    else:
-        get_auc_real_data(self)
 
-def get_proportion_same_element(self):
-    list_of_samples = list()
-    batches = [elem for elem in self.test_data[:1000] if len(elem)>1]
-    batches = [elem for elem in batches if len(elem)<6]
-    
-    #Get the samples for each batch
-    for i, batch in enumerate(batches):
-        train_words, label_words = np.reshape(batch[:-1],(1,-1)) , np.reshape(batch[-1],(1,-1))
+def calculate_proportion_same_element(self, step):
+    if (self.model_params.neg_sampled>1) and (self.model_params.model_type != "baseline") and \
+        (self.model_params.model_type != "softmax") and (self.model_params.model_type != "MLE"):
+        if self.model_params.working_with_pairs :
+            batches = self.training_data[np.random.choice(len(self.training_data), 500)]
+        else:
+            batches = get_basket_set_size_training(self.training_data, 500, 3)
 
+        train_words, label_words = batches[:,:-1], batches[:,1:]
         feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1}
-        if (self.model_params.model_type == "AIS") or (self.model_params.model_type == "MALIGAN"):    
+        if ("AIS" in self.model_params.model_type) or (self.model_params.model_type == "MALIGAN"):    
             op = self.gen_self_samples 
         elif (self.model_params.model_type == "selfplay"):
             op = self.disc_self_samples
@@ -270,25 +299,70 @@ def get_proportion_same_element(self):
             op = self.disc_random_samples
     
         samples = self._sess.run(op, feed_dict)
-        list_of_samples.append(samples)
+        prop, prop_equal_target = list(), list()
+        for i, elem in enumerate(samples):
+            prop.append(len(np.unique(elem))/len(elem))
+            prop_equal_target.append(len(np.where(elem==batches[i][-1])[0])/len(elem))
+        print("Proportion unique " + str(100*np.mean(np.array(prop))))
+        print("Proportion equal target " + str(100*np.mean(np.array(prop_equal_target))))
+        print("")
+        if ("AIS" in self.model_params.model_type) or (self.model_params.model_type == "MALIGAN"):
+            self.dataG[-1].append(np.mean(np.array(prop)))
+        else:
+            self.dataD[-1].append(np.mean(np.array(prop)))
+        del samples, op
+
+def get_training_auc_discriminator_aux(self, batches):
+    train_words, label_words = batches[:,:-1], batches[:,1:]
+    fake_sig, fake_soft, true_sig, true_soft = self._sess.run([
+            self.gen_fake_values_D_sigmoid, self.gen_fake_values_D_softmax,
+            self.gen_true_values_D_sigmoid, self.gen_true_values_D_softmax], 
+        feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1})
     
-    #Check %uniques and %equal target
-    samples = np.array(list_of_samples)
-    prop, prop_equal_target = list(), list()
-    for i, elem in enumerate(samples):
-        elem = elem[0]
-        prop.append(len(np.unique(elem))/len(elem))
-        prop_equal_target.append(len(np.where(elem==batches[i][-1])[0])/len(elem))
-    print("Proportion unique " + str(100*np.mean(np.array(prop))))
-    print("Proportion equal target " + str(100*np.mean(np.array(prop_equal_target))))
-    self.true_neg_prop.append(np.mean(np.array(prop)))
+    def print_rankings(fake_disc, true_disc):
+        rankings = list()
+        for i in range(len(batches)):
+            ranking = rankdata(list(fake_disc[i])+[true_disc[i]])[-1]
+            rankings.append(ranking)
+        average_ranking = (len(fake_disc[0])+1 - sum(rankings)/len(batches))/(len(fake_disc[0])+1)
+        print("Average true rank disc", round(average_ranking, 2))
     
-    if (self.model_params.dataset=="UK"):
-        listfile = open("samples.csv", "a")
-        writer = csv.writer(listfile)
-        for i in range(15):
-            writer.writerow([self.model_params.dictionnary[elem] for elem in batches[i]])
-            writer.writerow([self.model_params.dictionnary[elem] for elem in samples[i][0]])
-            writer.writerow("")
-        writer.writerow("")
-        writer.writerow("")
+    def print_auc(fake_disc, true_disc, title):
+        scores = np.concatenate((fake_disc.flatten(), true_disc.flatten()))
+        labels = np.array([0]*len(fake_disc.flatten())+[1]*len(true_disc.flatten()))
+        auc = roc_auc_score(labels, scores)
+        print(title, auc)
+    print_auc(fake_sig, true_sig, "auc sigmoid")
+    print_auc(fake_soft, true_soft, "auc softmax")
+    
+def calculate_auc_discriminator(self, step):
+    if ("AIS" in self.model_params.model_type) and (step%500==0):
+        if self.model_params.working_with_pairs:
+            batches = self.training_data[np.random.choice(len(self.training_data), 1000)]
+            get_training_auc_discriminator_aux(self, batches)
+        else:
+            for seq_length in [2, 4, 6]:
+                print(seq_length)
+                batches = get_basket_set_size_training(self.training_data, 200, seq_length)
+                get_training_auc_discriminator_aux(self, batches)
+        print("")
+
+def check_similarity(self, step):
+    writer = csv.writer(open(self.model_params.name+'.csv', 'w'), delimiter=",")
+    if (self.model_params.dataset == "text8"):
+
+        feed_dict={self.train_words:np.reshape(self.model_params.check_words_similarity, (-1,1)), self.dropout:1}
+        op = self.similarity_D if ("AIS" not in self.model_params.model_type) else self.similarity_G
+        similarities = self._sess.run(op, feed_dict)
+        
+        closest_words, closest_ids = list(), list()
+        for scores in similarities:
+            closest_ids.append(np.argsort(-scores)[:25])
+
+        for i, ids in enumerate(closest_ids):
+            closest = [self.model_params.dictionnary[Id] for Id in ids]
+            print(self.model_params.dictionnary[self.model_params.check_words_similarity[i]], closest[0], closest[1:])
+            closest_words.append(closest)
+            writer.writerow((closest[0], closest[1:]))
+            
+        writer.writerow(" "+"\n")
