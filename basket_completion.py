@@ -104,4 +104,5 @@ class Basket_Completion_Model(object):
         if (step%self.model_params.saving_step==0):
             np.save(self.model_params.name+"_disc", np.array(self.dataD))
             np.save(self.model_params.name+"_gen", np.array(self.dataG))
-            np.save(self.model_params.name+"_gen_emb"+str(step), self._sess.run(self.generator.embeddings_tensorflow))
+            if (self.model_params.dataset=="UK") or (self.model_params.dataset=="text8") or (self.model_params.dataset=="text9"):
+                np.save(self.model_params.name+"_gen_emb"+str(step), self._sess.run(self.generator.embeddings_tensorflow))

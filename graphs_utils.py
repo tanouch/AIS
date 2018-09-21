@@ -20,6 +20,8 @@ def create_placeholders(self):
     self.dropout = tf.placeholder(tf.float32, name="dropout")
     if (self.model_params.discriminator_samples_type=="context"):
         self.conditional_distributions_tensor = tf.Variable(self.model_params.conditional_distributions)
+    else:
+        self.conditional_distributions_tensor = tf.Variable(np.ones(shape=(10,10)))
 
     if (self.model_params.D_type=='LSTM') and (self.model_params.G_type=='LSTM'):
         self.context_words = tf.concat([tf.zeros([tf.shape(self.train_words)[0], self.seq_length], dtype=tf.float32), self.train_words])[:,:self.seq_length]

@@ -85,13 +85,13 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         self.G_type, self.D_type = G_type, D_type
         self.model_type, self.neg_sampled = model_type, neg_sampled
         self.min_steps = 15000
-        self.max_steps = 30000 if (dataset in ["blobs0", "blobs1", "blobs2", "swiss_curve", "s_curve"]) else 75000
+        self.max_steps = 30000 if (dataset in ["blobs0", "swiss_roll", "s_curve", "moons"]) else 75000
         self.printing_step, self.saving_step = 5000, 2500
         self.name = model_type + "_" + dataset +"_"+ G_type + "_" + str(neg_sampled)
         if (sampling=="context") or (sampling=="uniform") or (sampling=="selfplay"):
             self.name = self.name + "_" + sampling
         self.adv_generator_loss = ["AIS", "Not_Mixed"]
-        self.negG = [1,0]
+        self.negG, self.negD = [1,0], [1,0]
         
         if (model_type=="AIS"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["AIS", "Not_Mixed"], ["SS", "Not_Mixed"]
@@ -121,7 +121,8 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
             self.adv_discriminator_loss = ["baseline", "Not_Mixed"]
         
         self.discriminator_samples_type = sampling
-        self.negD = [neg_sampled, 0] if (sampling=="selfplay") else [0, neg_sampled]
+        if (model_type=="SS") or (model_type=="BCE"):
+            self.negD = [neg_sampled, 0] if (sampling=="selfplay") else [0, neg_sampled]
         self.generator_samples_type = "selfplay"
         print(dataset, model_type, neg_sampled, "negD", self.negD, "negG", self.negG, "G_type", G_type, "D_type", D_type, "sampling", sampling)
 
@@ -211,17 +212,19 @@ def test_other_models(list_of_models, list_of_datasets, list_of_NS=[1], list_of_
 
 def switch_launch(argument, neg_sampled):
     if int(argument) == 1:
-        test_other_models(["AIS"], ["blobs0", "swiss_roll", "s_curve", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
+        test_other_models(["AIS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
     if int(argument) == 2:
-        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")], "selfplay")
+        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")], "selfplay")
     if int(argument) == 3:
-        test_other_models(["baseline"], ["blobs0", "swiss_roll", "s_curve", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
+        test_other_models(["baseline"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
     if int(argument) == 4:
-        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")], "uniform",)
+        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")], "uniform",)
     if int(argument) == 5:
-        test_other_models(["softmax"], ["blobs0", "swiss_roll", "s_curve", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
+        test_other_models(["softmax"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
     if int(argument) == 6:
-        test_other_models(["MLE"], ["blobs0", "swiss_roll", "s_curve", "UK", "Belgian"], [int(neg_sampled)], [("w2v", "w2v")], "context")
+        test_other_models(["MLE"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian"], [int(neg_sampled)], [("w2v", "w2v")])
+    if int(argument) == 7:
+        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian"], [int(neg_sampled)], [("w2v", "w2v")], "context")
 
     if int(argument) == 20:
         test_other_models(["baseline"], ["text8"], [int(neg_sampled)], [("w2v", "w2v")], "item-item")

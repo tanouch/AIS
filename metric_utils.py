@@ -235,7 +235,7 @@ def get_auc_synthetic_data(self):
     batches = self.test_data[np.random.choice(len(self.test_data), size=5000)]
     context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
 
-    if (self.model_params.model_type=="baseline") or (self.model_params.model_type=="softmax"):
+    if (self.model_params.model_type=="baseline") or (self.model_params.model_type=="softmax") or (self.model_params.model_type=="MLE"):
         output_distributions = self._sess.run(self.output_distributions_D, \
         feed_dict={self.train_words:context_words, self.dropout:1})
         negative_samples = [1]
@@ -248,7 +248,7 @@ def get_auc_synthetic_data(self):
 
     if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
         output_distributions, negative_samples, negative_samples_D_values = self._sess.run([self.output_distributions_G , self.gen_self_samples, self.gen_self_values_D], \
-            feed_dict={self.train_words:context_words, self.dropout:1})
+            feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
         print_samples_and_KDE_density(self, batches, negative_samples, negative_samples_D_values, output_distributions, "GEN")
         mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "G")
     print("")
