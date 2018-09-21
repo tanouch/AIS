@@ -28,31 +28,31 @@ class Basket_Completion_Model(object):
 
         self.neg_sampled = model.neg_sampled
         self.neg_sampled_pretraining = 1 if self.neg_sampled<1 else self.neg_sampled
-        self.training_data, self.test_data, self.test_list_batches = model.training_data, model.test_data, model.test_list_batches
+        self.training_data, self.test_data = model.training_data, model.test_data
         self.num_epochs, self.batch_size, self.vocabulary_size, self.vocabulary_size2 = model.epoch, model.batch_size, model.vocabulary_size, model.vocabulary_size2
         self.seq_length, self.epoch = model.seq_length, model.epoch
         self.embedding_size, self.embedding_matrix, self.use_pretrained_embeddings = model.embedding_size, model.embedding_matrix, model.use_pretrained_embeddings
         self.adv_generator_loss, self.adv_discriminator_loss = model.adv_generator_loss, model.adv_discriminator_loss
         self.adv_negD, self.random_negD = model.negD
         self.adv_negG, self.random_negG = model.negG
-        self.discriminator_samples_type, self.generator_samples_type = model.discriminator_samples_type, model.generator_samples_type
         self.one_guy_sample = np.random.randint(self.vocabulary_size)
 
     def create_graph(self):
         create_placeholders(self)
-        create_generator(self)
-        create_discriminator(self)
+        create_generator(self, size=1)
+        create_discriminator(self, size=2)
         self.g_loss2 = -generator_adversarial_loss(self)
         self.d_loss2 = -discriminator_adversarial_loss(self)
 
         self.d_loss = 0.5*(self.d_loss1+self.d_loss2) if (self.adv_discriminator_loss[1]=="Mixed") else self.d_loss2
         self.g_loss = 0.5*self.g_loss2 + 0.5*self.g_loss1 if (self.adv_generator_loss[1]=="Mixed") else self.g_loss2
 
-        lr = 2.5e-3
+        lr, global_step = 1e-3, tf.Variable(0, trainable=False)
+        #rate = tf.train.exponential_decay(lr, global_step, 3, 0.9999)
         self.gen_optimizer, self.gen_optimizer_adv = tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
         self.disc_optimizer, self.disc_optimizer_adv = tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
         self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss, var_list=self.d_weights)
-        self.g_train_MLE, self.g_train_adversarial = self.gen_optimizer.minimize(-self.mle_lossG, var_list=self.g_weights), self.gen_optimizer_adv.minimize(self.g_loss, var_list=self.g_weights)
+        self.g_train_MLE, self.g_train_adversarial = self.gen_optimizer.minimize(-self.mle_lossG, var_list=self.g_weights), self.gen_optimizer_adv.minimize(self.g_loss, var_list=self.g_weights, global_step=global_step)
 
         self.dataD = [list(), list(), list(), list(), list(), list(), list()]
         self.dataG = [list(), list(), list(), list(), list(), list(), list()]
@@ -61,7 +61,8 @@ class Basket_Completion_Model(object):
         self.create_graph()
         self._sess = tf.Session()
         self._sess.run(tf.global_variables_initializer())
-        step, cont, disc_itr = 0, True, 10
+        step, cont = 0, True
+        disc_itr = 3 if (self.model_params.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]) else 10
         disc_loss1, disc_loss2, gen_loss1, gen_loss2, self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0, 0, 0, 0, 0
         disc_batch = self.batch_size
 
@@ -82,12 +83,13 @@ class Basket_Completion_Model(object):
                     print("Loss is nan")
                     print("")
                     cont = False
-                    self.save_data()
-                if (step > self.model_params.min_steps) and (early_stopping(self.dataG[0], 4) or early_stopping(self.dataG[2], 4)):
+                    self.save_data(step)
+                    
+                if ((step > self.model_params.min_steps) and (early_stopping(self.dataG[0], 4) or early_stopping(self.dataG[2], 4))) or \
+                    (step>self.model_params.max_steps):
                     cont = False
-                if (step%2500==0):
-                    self.save_data()
                 
+                self.save_data(step)
                 testing_step(self, step)
                 calculate_auc_discriminator(self, step)
                 step += 1
@@ -95,10 +97,11 @@ class Basket_Completion_Model(object):
             except KeyboardInterrupt:
                 cont = False
 
-        self.save_data()
+        self.save_data(step)
         tf.reset_default_graph()
 
-    def save_data(self):
-        np.save(self.model_params.name+"_disc", np.array(self.dataD))
-        np.save(self.model_params.name+"_gen", np.array(self.dataG))
-        np.save(self.model_params.name+"_gen_emb", self._sess.run(self.generator.embeddings_tensorflow))
+    def save_data(self, step):
+        if (step%self.model_params.saving_step==0):
+            np.save(self.model_params.name+"_disc", np.array(self.dataD))
+            np.save(self.model_params.name+"_gen", np.array(self.dataG))
+            np.save(self.model_params.name+"_gen_emb"+str(step), self._sess.run(self.generator.embeddings_tensorflow))

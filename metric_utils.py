@@ -2,9 +2,10 @@ import math
 import numpy as np
 import random
 import matplotlib.pyplot as plt
+from matplotlib import cm
 from scipy.stats import norm, describe, rankdata
 from sklearn.metrics import roc_auc_score
-
+from sklearn.preprocessing import normalize
 from tools import *
 from training_utils import create_batch, print_gen_and_disc_losses, early_stopping
 
@@ -19,10 +20,10 @@ def testing_step(self, step):
             calculate_auc_discriminator(self, step)
             calculate_proportion_same_element(self, step)
             check_similarity(self, step)
+            check_analogies(self, step)
        
         if (self.model_params.type_of_data=="synthetic"):
             get_auc_synthetic_data(self)
-
 
 def print_results_predictions(last_predictions, batch_inputs, targets, vocabulary_size):
     predictions_for_targets = 100*np.mean(np.array([last_predictions[i][int(targets[i])] for i in range(len(batch_inputs))]))
@@ -121,11 +122,11 @@ def calculate_mpr(self):
     else:    
         calculate_mpr_baskets(self)
 
-def mpr_func(self, batches, label_words, distributions):
+def mpr_func(self, batches, context_words, label_words, distributions):
     if (len(batches[0])==2):
         mpr, prec1 = 0, 1
         for k in range(len(batches)):
-            l = list_elem_not_co_occuring(self, label_words[k][0])
+            l = list_elem_not_co_occuring(self, context_words[k][0])
             rank = rankdata(distributions[k][l])[-1]
             prec1 = prec1+1 if (rank>(len(l)-2)) else prec1
             mpr += rank/len(l)
@@ -142,27 +143,28 @@ def mpr_func(self, batches, label_words, distributions):
 def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
     mprs, aucs, prec1s = list(), list(), list()
     batch = self.test_data[:10000]
+    #test_context = np.random.choice(np.unique(self.test_data[:,0]), 1000) #batch = [[e, np.random.choice(self.model_params.dict_co_occurences[e])]]
+
     for i in range(5):
         batches = batch[np.random.choice(len(batch), size=7000)]
         context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
 
         if self.model_params.use_pretrained_embeddings:
             user_embeddings = self.model_params.user_embeddings[batches[:,0]]
-            distributions = np.matmul(user_embeddings, np.transpose(self.model_params.items_embeddings))
-            #distributions = np.exp(distributions)/np.sum(np.exp(distributions), axis=1, keepdims=True)
+            distributions = np.matmul(user_embeddings, np.transpose(self.model_params.item_embeddings))
             
         else:
             distributions = self._sess.run(op, \
                 feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
         
         positive_scores = [distributions[i][label_words[i][0]] for i in range(len(batches))]
-        negative_scores = [distributions[i][e] for i in range(len(batches)) for e in get_negatives(self, label_words[i][0], 10)] \
+        negative_scores = [distributions[i][e] for i in range(len(batches)) for e in get_negatives(self, context_words[i][0], 10)] \
             if (len(batches[0])==2) else [distributions[i][e] for e in np.random.choice(self.model_params.vocabulary_size, 10) for i in range(len(batches))]
         
         labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
         aucs.append(roc_auc_score(labels, logits))
         
-        mpr, prec1 = mpr_func(self, batches, label_words, distributions)
+        mpr, prec1 = mpr_func(self, batches, context_words, label_words, distributions)
         mprs.append(mpr)
         prec1s.append(prec1)
     
@@ -170,12 +172,10 @@ def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
     auc = get_conf_int(aucs, 5)
     prec1 = get_conf_int(prec1s, 5)
     print(net, "auc", auc, "mpr", mpr, "prec1", prec1)
-
     res = [mpr, auc, prec1]
     for i in range(3):
         list_of_logs[2*i].append((res[i][0]+res[i][1])/2)
         list_of_logs[2*i + 1].append(res[i][1]-res[i][0])
-    
     return mpr, auc
 
 def get_heatmap_density(self, positive_samples, output_distributions):
@@ -190,60 +190,67 @@ def get_heatmap_density(self, positive_samples, output_distributions):
     heatmap_final = heatmap_final/sum_tot
     return heatmap_final
 
-def print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, print_negatives, net_type):
-    
-    negative_pairs = np.column_stack((np.tile(context_words, (1, negative_samples.shape[1])).flatten(), negative_samples.flatten()))
-    true_neg_prop, true_negative_samples, false_negative_samples = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, 25, negative_pairs)
+def print_samples_and_KDE_density(self, batches, negative_samples, d_values, output_distributions, net_type):
+    context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
     heatmap = get_heatmap_density(self, batches, output_distributions)
+    
+    def plot_samples(print_negatives):
+        plt.figure(figsize=(20, 12))
+        if print_negatives:
+            negative_pairs = np.column_stack((np.tile(context_words, (1, negative_samples.shape[1])).flatten(), negative_samples.flatten()))
+            true_neg_prop, true_negative_pairs, false_negative_pairs = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, 25, negative_pairs)
+            if len(d_values)==1:
+                plt.plot(negative_pairs[:,0], negative_pairs[:,1], 'o', markersize=2, color="black", alpha=0.08, label="Negative samples")
+            else:
+                plt.scatter(negative_pairs[:,0], negative_pairs[:,1], marker='o', s=2, c=d_values.flatten(), alpha=0.08)
 
-    plt.figure(figsize=(15, 5))
-    if print_negatives:
-        plt.plot(true_negative_samples[:,0], true_negative_samples[:,1], 'o', markersize=2, color="black", alpha=0.045, label="Negative samples")
-        plt.plot(false_negative_samples[:,0], false_negative_samples[:,1], 'o', markersize=2, color="red", alpha=0.045, label="Negative samples")
+        plt.imshow(np.transpose(heatmap), extent=[0, self.vocabulary_size, 0, self.vocabulary_size], alpha=0.4, cmap=cm.RdYlGn, origin="lower", aspect='auto', interpolation="bilinear")
+        plt.contour(self.model_params.X, self.model_params.Y, self.model_params.Z, levels=[self.model_params.threshold], label="KDE estimation")
+        plt.legend(loc=4)
+        plt.xlabel("Input Product")
+        plt.ylabel("Target Product")
+        plt.title("Probability distributions of the Target product wrt the Input product for : " + self.model_params.model_type + " " + net_type+ " model")
 
-    plt.imshow(np.transpose(self.heatmap), extent=[0, self.vocabulary_size, 0, self.vocabulary_size], alpha=0.4, cmap=cm.RdYlGn, origin="lower", aspect='auto', interpolation="bilinear")
-    plt.contour(self.model_params.X, self.model_params.Y, self.model_params.Z, levels=[self.model_params.threshold], label="KDE estimation")
-    plt.legend(loc=4)
-    plt.xlabel("Input Product")
-    plt.ylabel("Target Product")
-    plt.title("Probability distributions of the Target product wrt the Input product for : " + self.model_params.model_type + " " + net_type+ " model")
-
-    folder = self.model_params.folder+"/"+self.model_params.model_type+"/"
-    create_dir(folder)
-    folder = folder + "/" + net_type + "/"
-    create_dir(folder)
-    if print_negatives:
-        folder = folder+"/"+"Negatives"+"/"
+        if (self.model_params.model_type != "SS"):
+            folder = self.model_params.folder+"/"+self.model_params.model_type+"/"
+        else:
+            folder = self.model_params.folder+"/"+self.model_params.model_type+"_"+self.model_params.discriminator_samples_type+"/"
         create_dir(folder)
+        folder = folder + "/" + net_type + "/"
+        create_dir(folder)
+        
+        folder = folder+"/"+"Negatives"+"/" if print_negatives else folder+"/"+"Normal"+"/"
+        create_dir(folder)
+        plt.savefig(folder+net_type+"_neg"+str(self.pic_number)+".pdf")
         plt.savefig(folder+net_type+"_neg"+str(self.pic_number))
-    else:
-        folder = folder+"/"+"Normal"+"/"
-        create_dir(folder)
-        plt.savefig(folder+net_type+str(self.pic_number))
+        self.pic_number += 1
 
-    self.pic_number += 1
-    return true_neg_prop
+    plot_samples(False)
+    if (len(negative_samples)!=1):
+        plot_samples(True)
 
 
 def get_auc_synthetic_data(self):
     print("")
-    batches = self.test_data[np.random.choice(len(self.test_data), size=2500)]
+    batches = self.test_data[np.random.choice(len(self.test_data), size=5000)]
     context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
 
-    output_distributions, negative_samples= self._sess.run([self.output_distributions_D,self.disc_fake_samples], \
-        feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
+    if (self.model_params.model_type=="baseline") or (self.model_params.model_type=="softmax"):
+        output_distributions = self._sess.run(self.output_distributions_D, \
+        feed_dict={self.train_words:context_words, self.dropout:1})
+        negative_samples = [1]
+    else:
+        output_distributions, negative_samples= self._sess.run([self.output_distributions_D, self.disc_random_and_self_samples], \
+        feed_dict={self.train_words:context_words, self.dropout:1})
 
-    print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, False, "DISC")
-    true_neg_prop = print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, True, "DISC")
-    mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD)
+    print_samples_and_KDE_density(self, batches, negative_samples, [1], output_distributions, "DISC")
+    mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "D")
 
     if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
-        output_distributions, negative_samples= self._sess.run([self.output_distributions_G , self.gen_fake_samples], \
-            feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
-        print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, False, "GEN")
-        true_neg_prop = print_samples_and_KDE_density(self, context_words, negative_samples, output_distributions, True, "GEN")
-        mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG)
-
+        output_distributions, negative_samples, negative_samples_D_values = self._sess.run([self.output_distributions_G , self.gen_self_samples, self.gen_self_values_D], \
+            feed_dict={self.train_words:context_words, self.dropout:1})
+        print_samples_and_KDE_density(self, batches, negative_samples, negative_samples_D_values, output_distributions, "GEN")
+        mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "G")
     print("")
 
 
@@ -348,21 +355,56 @@ def calculate_auc_discriminator(self, step):
         print("")
 
 def check_similarity(self, step):
-    writer = csv.writer(open(self.model_params.name+'.csv', 'w'), delimiter=",")
-    if (self.model_params.dataset == "text8"):
-
-        feed_dict={self.train_words:np.reshape(self.model_params.check_words_similarity, (-1,1)), self.dropout:1}
-        op = self.similarity_D if ("AIS" not in self.model_params.model_type) else self.similarity_G
-        similarities = self._sess.run(op, feed_dict)
+    writer = csv.writer(open(self.model_params.name+"_"+str(step)+'.csv', 'w'), delimiter=",")
+    
+    if ("text" in self.model_params.dataset) or (self.model_params.dataset == "UK"):
+        if self.model_params.use_pretrained_embeddings:
+            norm = np.sqrt(np.sum(np.square(self.model_params.item_embeddings), 1, keepdims=True))
+            normalized_embeddings = self.model_params.item_embeddings/norm
+            item_embeddings = normalized_embeddings[self.model_params.check_words_similarity]
+            similarities = np.matmul(item_embeddings, np.transpose(normalized_embeddings))
+        else:
+            feed_dict={self.train_words:np.reshape(self.model_params.check_words_similarity, (-1,1)), self.dropout:1}
+            op = self.similarity_D if ("AIS" not in self.model_params.model_type) else self.similarity_G
+            similarities = self._sess.run(op, feed_dict)
         
-        closest_words, closest_ids = list(), list()
-        for scores in similarities:
-            closest_ids.append(np.argsort(-scores)[:25])
-
-        for i, ids in enumerate(closest_ids):
+        closest_words = list()
+        for i, scores in enumerate(similarities):
+            ids = np.argsort(-scores)[:25]
             closest = [self.model_params.dictionnary[Id] for Id in ids]
             print(self.model_params.dictionnary[self.model_params.check_words_similarity[i]], closest[0], closest[1:])
             closest_words.append(closest)
             writer.writerow((closest[0], closest[1:]))
+
+def check_analogies(self, step):
+    if ("text" in self.model_params.dataset):
+        def acc_list_analogies(self, list_analogies):
+            context_embeddings = list()
+            if self.model_params.use_pretrained_embeddings:
+                embeddings = self.model_params.item_embeddings
+            else:
+                op = self.discriminator.embeddings_tensorflow if ("AIS" not in self.model_params.model_type) else self.generator.embeddings_tensorflow
+                embeddings = self._sess.run(op)
             
-        writer.writerow(" "+"\n")
+            for elem in list_analogies:
+                context_embeddings.append(embeddings[elem[0]] - \
+                    embeddings[elem[1]] + embeddings[elem[2]])
+            context_embeddings = normalize(np.array(context_embeddings), norm='l2', axis=1, copy=True, return_norm=False)
+            embeddings = normalize(embeddings, norm='l2', axis=1, copy=True, return_norm=False)
+            analogies = np.matmul(context_embeddings, np.transpose(embeddings))
+
+            acc2, acc5, acc15 = 0, 0, 0
+            for i, scores in enumerate(analogies):
+                ids = np.argsort(-scores)
+                if (list_analogies[i][-1] in ids[:2]):
+                    acc2 += 1
+                if (list_analogies[i][-1] in ids[:5]):
+                    acc5 += 1
+                if (list_analogies[i][-1] in ids[:15]):
+                    acc15 += 1
+            del embeddings
+            return round(100*acc2/len(list_analogies), 3), round(100*acc5/len(list_analogies), 3), round(100*acc15/len(list_analogies), 3)
+
+        sem2, sem5, sem15 = acc_list_analogies(self, self.model_params.list_semantic_analogies)
+        syn2, syn5, syn15 = acc_list_analogies(self, self.model_params.list_syntactic_analogies)
+        print("Sem analogy acc", sem2, sem5, sem15, "Syn analogy acc", syn2, syn5, syn15)

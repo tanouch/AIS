@@ -28,29 +28,28 @@ class Self_Basket_Completion_Model(object):
         self.neg_sampled = model.neg_sampled
         self.neg_sampled_pretraining = 1 if self.neg_sampled<1 else self.neg_sampled
 
-        self.training_data, self.test_data, self.test_list_batches = model.training_data, model.test_data, model.test_list_batches
+        self.training_data, self.test_data = model.training_data, model.test_data
         self.num_epochs, self.batch_size, self.vocabulary_size, self.vocabulary_size2 = model.epoch, model.batch_size, model.vocabulary_size, model.vocabulary_size2
         self.seq_length, self.epoch = model.seq_length, model.epoch
         self.embedding_size, self.embedding_matrix, self.use_pretrained_embeddings = model.embedding_size, model.embedding_matrix, model.use_pretrained_embeddings
         self.adv_generator_loss, self.adv_discriminator_loss = model.adv_generator_loss, model.adv_discriminator_loss
         self.adv_negD, self.random_negD = model.negD
         self.discriminator_type = model.D_type
-        self.discriminator_samples_type = model.discriminator_samples_type
         self.one_guy_sample = np.random.choice(self.vocabulary_size-1)
         self.dataD = [list(), list(), list(), list(), list(), list(), list()]
         self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0
 
     def create_graph(self):
         create_placeholders(self)
-        create_discriminator(self)
+        create_discriminator(self, size=1)
         self.before_softmax_G = self.before_softmax_D
-        if (self.model_params.model_type=="selfplay") or (self.model_params.model_type=="uniform") :
+        if (self.model_params.model_type=="SS") or (self.model_params.model_type=="BCE"):
             self.d_loss2 = -discriminator_adversarial_loss(self)
             self.d_loss = 0.5*(self.d_loss1+self.d_loss2) if (self.adv_discriminator_loss[1]=="Mixed") else self.d_loss2
-            self.disc_optimizer_adv, self.adv_grad = tf.train.AdamOptimizer(0.75e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.gradients(self.d_loss, self.d_weights)
+            self.disc_optimizer_adv, self.adv_grad = tf.train.AdamOptimizer(1.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.gradients(self.d_loss, self.d_weights)
             self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss, var_list=self.d_weights)
         
-        self.disc_optimizer = tf.train.AdamOptimizer(0.75e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
+        self.disc_optimizer = tf.train.AdamOptimizer(1e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
         self.d_baseline = self.disc_optimizer.minimize(self.d_loss1, var_list=self.d_weights)
         self.d_softmax, self.d_mle = self.disc_optimizer.minimize(self.softmax_loss, var_list=self.d_weights), self.disc_optimizer.minimize(-self.mle_lossD, var_list=self.d_weights)
         self.softmax_grad = tf.gradients(self.softmax_loss, self.d_weights)
@@ -80,21 +79,23 @@ class Self_Basket_Completion_Model(object):
 
                 if (math.isnan(disc_loss1)) or (math.isnan(disc_loss2)):
                     cont = False
-                if (step > self.model_params.min_steps) and (early_stopping(self.dataD[0], 4) or early_stopping(self.dataD[2], 4)):
+                if ((step > self.model_params.min_steps) and (early_stopping(self.dataD[0], 4) or early_stopping(self.dataD[2], 4))) or \
+                    (step>self.model_params.max_steps):
                     cont = False
-                if (step%2500==0):
-                    self.save_data()
                     
+                self.save_data(step)
                 testing_step(self, step)
                 step += 1
             
             except KeyboardInterrupt:
                 cont = False
         
-        self.save_data()
+        self.save_data(step)
         tf.reset_default_graph()
     
-    def save_data(self):
-        data = np.array(self.dataD)
-        np.save(self.model_params.name, data)
-        np.save(self.model_params.name+"_emb", self._sess.run(self.discriminator.embeddings_tensorflow))
+    def save_data(self, step):
+        if (step%self.model_params.saving_step==0):
+            data = np.array(self.dataD)
+            np.save(self.model_params.name, data)
+            if (self.model_params.dataset=="UK") or (self.model_params.dataset=="text8") or (self.model_params.dataset=="text9"):
+                np.save(self.model_params.name+"_emb"+str(step), self._sess.run(self.discriminator.embeddings_tensorflow))

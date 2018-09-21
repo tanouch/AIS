@@ -38,13 +38,10 @@ def get_specific_values(list_of_results, list_of_points, divide_factor):
     return [elem[point]/divide_factor for (elem,point) in zip(list_of_results, list_of_points)]
 
 def get_best_algo(list_of_files_per_dataset, index):
-    writer = csv.writer(open('results.csv', 'w'), delimiter=",")
-
+    dictionnary = {}
     for dataset in list(list_of_files_per_dataset.keys()):
-        print("")
-        print(dataset)    
-        writer.writerow(dataset)
-
+        #writer.writerow(dataset)
+        dictionnary[dataset] = list()
         for algo in ["AIS", "selfplay", "softmax", "uniform", "baseline", "MLE"]:
 
             files = [elem for elem in list_of_files_per_dataset[dataset] if algo in elem]
@@ -62,28 +59,33 @@ def get_best_algo(list_of_files_per_dataset, index):
             
             final_results = list(zip(*(best_algo, best_mpr, best_uncertaincy)))
             if (len(final_results)>0):
-                final_results = (final_results[-1][0], str(round(100*final_results[-1][1], 5)) + " +- "+ str(100*round(100*final_results[-1][2], 5)))
-                print(algo, final_results)
-                writer.writerow(final_results)
+                final_results = (str(round(100*final_results[-1][1], 5)) + " +-"+ str(round(100*final_results[-1][2], 5)))
+                dictionnary[dataset].append(final_results)
             else:
-                print(algo)
-                
-        writer.writerow(" "+"\n")
-                  
-    writer.writerow(" "+"\n")
-    writer.writerow(" "+"\n")
+                dictionnary[dataset].append([])
+                #writer.writerow(final_results)
+        #writer.writerow(" "+"\n")                  
+    #writer.writerow(" "+"\n")
+    return dictionnary
 
 
-path = "Results_StructuredPred/Items_items"
+
+path = "Results_StructuredPred/users_items"
 list_of_files = get_all_files_in_a_path_recursively(path)
 sort_nicely(list_of_files)
-datasets = ["Belgian", "UK", "movielens", "netflix", "text8"]
+datasets = ["Belgian", "UK", "movielens", "netflix", "text8", "text9"]
 list_of_files_per_dataset = get_filenames_per_dataset(datasets, list_of_files)
 
+#writer = csv.writer(open('results.csv', 'w'), delimiter=",")
+dictionnary_MPR = get_best_algo(list_of_files_per_dataset, 0)
+dictionnary_AUC = get_best_algo(list_of_files_per_dataset, 2)
+dictionnary_prec1 = get_best_algo(list_of_files_per_dataset, 4)
 
-get_best_algo(list_of_files_per_dataset, 0)
-get_best_algo(list_of_files_per_dataset, 2)
-get_best_algo(list_of_files_per_dataset, 4)
+for dataset in list(list_of_files_per_dataset.keys()):
+    print("")
+    print(dataset)
+    for i, algo in enumerate(["AIS", "selfplay", "softmax", "uniform", "baseline", "MLE"]):
+        print(algo, dictionnary_MPR[dataset][i], dictionnary_AUC[dataset][i], dictionnary_prec1[dataset][i])
 
 
 def process_data():

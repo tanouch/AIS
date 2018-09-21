@@ -23,7 +23,8 @@ def read_data_text8(filename):
 def build_dataset(words, n_words, top_words_removed_threshold):
   """Process raw inputs into a dataset."""
   count = [['UNK', -1]]
-  count.extend(collections.Counter(words).most_common(n_words - 1))
+  #count.extend(collections.Counter(words).most_common(n_words - 1))
+  count.extend(sorted(collections.Counter(words).items(), key = lambda x:(x[1], x[0]) , reverse=True)[:n_words])
   dictionary = dict()
   for word, _ in count:
     dictionary[word] = len(dictionary)

@@ -1,3 +1,4 @@
+import matplotlib.pyplot as plt
 import copy
 from random import shuffle, sample
 import itertools
@@ -13,18 +14,78 @@ def create_dir(type_of_data):
     if not os.path.exists(type_of_data):
         os.makedirs(type_of_data)
 
-def get_co_occurences_dict(data, task_mode):
+def get_co_occurences_dict(self):
     dic = {}
-    for i, elem in enumerate(data):
-        if (task_mode == "item-item"):
-            for e in elem:
-                if e in dic:
-                    dic[e].update(elem)
-                else:
-                    dic[e] = Counter(elem)
-        elif (task_mode == "user-item"):
-            dic[i] = Counter(elem)
+    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
+        for i, elem in enumerate(self.data):
+            if elem[0] in dic:
+                dic[elem[0]].update([elem[1]])
+            else:
+                dic[elem[0]] = Counter([elem[1]])
+
+    else:
+        for i, elem in enumerate(self.data):
+            if (self.task_mode == "item-item"):
+                for e in elem:
+                    if e in dic:
+                        dic[e].update(elem)
+                    else:
+                        dic[e] = Counter(elem)
+            elif (self.task_mode == "user-item"):
+                dic[i] = Counter(elem)
     return dic
+
+def get_context_conditional_distributions(self):
+    conditional_distributions = np.zeros(shape=(self.vocabulary_size2, self.vocabulary_size2))
+    for i, dist in enumerate(conditional_distributions):
+        try:
+            co_occuring_elems = self.dict_co_occurences[i]
+            #total_sum = sum(co_occuring_elems.values())
+            dist[list(co_occuring_elems.keys())] += np.array([elem for elem in co_occuring_elems.values()])
+            dist[np.delete(np.arange(self.vocabulary_size2), list(co_occuring_elems.keys()))] -= 100            
+        except KeyError:
+            dist = np.ones(self.vocabulary_size2)/self.vocabulary_size2
+    return conditional_distributions
+
+
+def get_mutual_exclusivity_stats(self):
+    dict_explanation_items = dict()
+    occurences = list()
+    elements_co_occuring_with = list()
+    for elem, counters in self.dict_co_occurences.items():
+        length, occ = len(counters)-1, sum(counters.values())/2
+        elements_co_occuring_with.append(length)
+        occurences.append(occ)
+        dict_explanation_items[elem] = (occ, length)
+
+    def plott(listt, filename, plot_threshold):
+        occurences = -np.sort(-np.array(listt))
+        fig = plt.figure(figsize=(20,15))
+        ax1 = fig.add_subplot(111)
+        ax1.plot(np.log10(occurences), 'b', label="Numbers")
+        if plot_threshold:
+            ax1.axhline(y=np.log10(0.01*self.vocabulary_size2), color='k', linestyle='--', label="Threshold 1% of vocab_size")
+            
+        ax2 = ax1.twinx()
+        occurences = occurences/np.sum(occurences)
+        ax2.plot(np.cumsum(occurences), 'r', label="Cumulative")
+        ax1.set_ylabel('Log number of co-occuring items and 1% of vocab_size threshold', color='b')
+        ax2.set_ylabel('Cumulative % ', color='r')
+        #ax1.legend()
+        #ax2.legend()
+        plt.savefig(filename)
+    
+    plott(occurences, "occurences"+self.dataset, False)
+    plott(elements_co_occuring_with, "elements_co_occuring"+self.dataset, True)
+
+    #labels, values = zip(*Counter(occurences).items())
+    #indexes = np.arange(len(labels))
+    #width = 1
+    #plt.figure(figsize=(20,15))
+    #plt.bar(indexes, values, width)
+    #plt.xticks(indexes + width * 0.5, labels)
+    #plt.savefig("occurences")
+
 
 def list_elem_not_co_occuring(self, item):
     if item not in self.model_params.dict_co_occurences:
@@ -35,7 +96,6 @@ def list_elem_not_co_occuring(self, item):
 def get_negatives(self, item, size):
     co_occuring = list(self.model_params.dict_co_occurences[item])
     return np.random.choice(np.delete(np.arange(self.model_params.vocabulary_size2), co_occuring), size)
-
 
 def get_the_density_of_the_baskets_length_in_the_data(data):
     length = [len(elem) for elem in data]
@@ -121,6 +181,32 @@ def get_popularity_dist(training_data, vocabulary_size):
     popularity_dist = [float(counter[i]) for i in range(vocabulary_size)]
     return popularity_dist
 
+def read_text_file(inputfile, outputfile):
+    data = read_data_text8("datasets/text8.zip")
+    n_words, top_words_removed_threshold = 30000, 25
+    data, count, dictionary, reversed_dictionary = \
+        build_dataset(data, n_words, top_words_removed_threshold)
+
+    print(len(data))
+
+    new_dictionnary = {}
+    with open(inputfile) as f:
+        lines = [line.rstrip('\n') for line in f]
+        lines = [line.split(" ") for line in lines]
+        emb_size = len(lines[1])-2
+        for i, elem in enumerate(lines):
+            if i > 0:
+                new_dictionnary[elem[0]] = [float(e) for e in elem[1:] if e != '']
+
+    emb = list()
+    for i in range(n_words+1):
+        word = reversed_dictionary[i]
+        if word in new_dictionnary:
+            emb.append(new_dictionnary[word])
+        else:
+            emb.append([0]*emb_size)
+    np.save(outputfile, np.array(emb))
+
 def write_results_in_csv(filename, list_of_list):
     with open(filename,"w") as f :
         csv_writer = csv.writer(f)
@@ -145,8 +231,8 @@ def get_vocabulary_size(self):
         self.vocabulary_size, self.vocabulary_size2 = (1+max([elem for elem in self.data[:,0]]), 1+max([elem for elem in self.data[:,1]]))
     return (self.vocabulary_size, self.vocabulary_size2)
 
-def split_data(data):
-    proportion_training, proportion_test = (0.8, 0.2)
+def split_data(data, proportion_training):
+    proportion_test = 1-proportion_training
     num_test_instances = int(len(data)*proportion_test)
     test_data, training_data = data[:num_test_instances], data[num_test_instances:]
     return test_data, training_data

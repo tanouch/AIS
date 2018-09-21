@@ -108,19 +108,49 @@ def load_NYtimes_dataset(data_file_path):
                     list_of_baskets[-1].append(dict_word_to_ids[word])
     return np.array(list_of_baskets)
 
-def create_text8_dataset(filename):
+def create_text8_dataset(filename, n_words):
     data = read_data_text8(filename)
-    n_words, top_words_removed_threshold = 12000, 25
+    top_words_removed_threshold = 25
     data, count, dictionary, reversed_dictionary = \
         build_dataset(data, n_words, top_words_removed_threshold)
     pairs = np.array([[data[i], data[i+1]] for i in range(len(data)-1)])
+    #create_text8_new_data(data, reversed_dictionary)
+    #create_analogy_datasets("datasets/semantics.txt", "semantics30000.npy", dictionary)
+    #create_analogy_datasets("datasets/syntactics.txt", "syntactics30000.npy", dictionary)
     return pairs, reversed_dictionary
+
+def create_text8_new_data(data, reversed_dictionary):
+    with open('text8_new', 'w') as outfile:
+        words_data = [reversed_dictionary[i] for i in data]
+        outfile.write(" ".join(words_data))
+
+def create_analogy_datasets(textfile, filename, dictionary):
+    analogies_indices = list()
+    with open(textfile, "r") as textfile:
+        reader = csv.reader(textfile, delimiter=' ', quotechar='|')
+        for row in reader:
+            if (row[0] in dictionary) and (row[1] in dictionary) and \
+                (row[2] in dictionary) and (row[3] in dictionary):
+                analogies_indices.append([dictionary[elem] for elem in row])
+    np.save(filename, np.array(analogies_indices))
+
+def load_threshold_and_Z(self):
+    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
+        self.Z = np.load("manifolds/datasets/"+self.dataset+"/Z.npy")
+        self.threshold = np.load("manifolds/datasets/"+self.dataset+"/threshold.npy")
+        self.X = np.load("manifolds/datasets/"+self.dataset+"/X.npy")
+        self.Y = np.load("manifolds/datasets/"+self.dataset+"/Y.npy")
     
 
 def load_data(self):
     dictionnary = {}
     if self.dataset == "text8":
-        data, dictionnary = create_text8_dataset("datasets/text8.zip")
+        data, dictionnary = create_text8_dataset("datasets/text8.zip", 12000)
+        folder = "datasets/text8/"
+        metric = "MPR"
+        type_of_data = "real"
+    if self.dataset == "text9":
+        data, dictionnary = create_text8_dataset("datasets/text8.zip", 30000)
         folder = "datasets/text8/"
         metric = "MPR"
         type_of_data = "real"
@@ -139,16 +169,6 @@ def load_data(self):
         folder = "datasets/netflix/"
         metric = "MPR"
         type_of_data = "real"
-    if self.dataset == "netflix_mf_Ponly":
-        data = np.load("datasets/netflix_mf_Ponly.npy")
-        folder = "datasets/netflix/"
-        metric = "AUC"
-        type_of_data = "real"
-    if self.dataset == "movielens_mf_Ponly":
-        data = np.load("datasets/movielens_mf_Ponly.npy")
-        folder = "datasets/netflix/"
-        metric = "AUC"
-        type_of_data = "real"
     if self.dataset == "Belgian":
         data = get_data("datasets/retail.dat")
         folder = "datasets/Belgian/"
@@ -164,47 +184,15 @@ def load_data(self):
         folder = "datasets/Amazon/"
         metric = "MPR"
         type_of_data = "real"
-    if self.dataset == "swiss_roll":
-        data = np.load("manifolds/datasets/swiss_roll/true_data.npy")
-        folder = "manifolds/swiss_roll/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "s_curve":
-        data = np.load("manifolds/datasets/s_curve/true_data.npy")
-        folder = "manifolds/s_curve/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "blobs":
-        data = np.load("manifolds/datasets/blobs/true_data.npy")
-        folder = "manifolds/blobs/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "moons":
-        data = np.load("manifolds/datasets/moons/true_data.npy")
-        folder = "manifolds/moons/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "blobs0":
-        data = np.load("manifolds/datasets/blobs0/true_data.npy")
-        folder = "manifolds/blobs0/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "blobs1":
-        data = np.load("manifolds/datasets/blobs1/true_data.npy")
-        folder = "manifolds/blobs1/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "blobs2":
-        data = np.load("manifolds/datasets/blobs2/true_data.npy")
-        folder = "manifolds/blobs2/"
-        metric = "AUC"
-        type_of_data = "synthetic"
-    if self.dataset == "circles":
-        data = np.load("manifolds/datasets/circles/true_data.npy")
-        folder = "manifolds/circles/"
+    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
+        data = np.load("manifolds/datasets/"+self.dataset+"/true_data.npy")
+        folder = "manifolds/"+self.dataset+"/"
         metric = "AUC"
         type_of_data = "synthetic"
     
     print_info_on_data(data, self.max_basket_size)
-    data = [sample(elem, min(len(elem), self.max_basket_size)) for elem in data]
-    return data, folder, metric, type_of_data, dictionnary
+    try:
+        data = [sample(elem, min(len(elem), self.max_basket_size)) for elem in data]
+        return data, folder, metric, type_of_data, dictionnary
+    except TypeError:
+        return data, folder, metric, type_of_data, dictionnary
