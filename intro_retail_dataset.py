@@ -92,6 +92,7 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
             self.name = self.name + "_" + sampling
         self.adv_generator_loss = ["AIS", "Not_Mixed"]
         self.negG, self.negD = [1,0], [1,0]
+        self.discriminator_samples_type = sampling
         
         if (model_type=="AIS"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["AIS", "Not_Mixed"], ["SS", "Not_Mixed"]
@@ -120,7 +121,6 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         elif (model_type=="baseline"):
             self.adv_discriminator_loss = ["baseline", "Not_Mixed"]
         
-        self.discriminator_samples_type = sampling
         if (model_type=="SS") or (model_type=="BCE"):
             self.negD = [neg_sampled, 0] if (sampling=="selfplay") else [0, neg_sampled]
         self.generator_samples_type = "selfplay"
@@ -212,7 +212,7 @@ def test_other_models(list_of_models, list_of_datasets, list_of_NS=[1], list_of_
 
 def switch_launch(argument, neg_sampled):
     if int(argument) == 1:
-        test_other_models(["AIS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")])
+        test_other_models(["AIS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")], "selfplay")
     if int(argument) == 2:
         test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [int(neg_sampled)], [("w2v", "w2v")], "selfplay")
     if int(argument) == 3:
