@@ -42,7 +42,7 @@ def get_context_conditional_distributions(self):
             co_occuring_elems = self.dict_co_occurences[i]
             #total_sum = sum(co_occuring_elems.values())
             #dist[np.delete(np.arange(self.vocabulary_size2), list(co_occuring_elems.keys()))] -= 100
-            dist[list(co_occuring_elems.keys())] -= np.array([-10*elem for elem in co_occuring_elems.values()])
+            dist[list(co_occuring_elems.keys())] -= np.array([10*elem for elem in co_occuring_elems.values()])
         except KeyError:
             dist = np.ones(self.vocabulary_size2)/self.vocabulary_size2
     return conditional_distributions
