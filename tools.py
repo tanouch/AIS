@@ -16,7 +16,8 @@ def create_dir(type_of_data):
 
 def get_co_occurences_dict(self):
     dic = {}
-    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
+    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]) \
+        or (self.task_mode == "user-item"):
         for i, elem in enumerate(self.data):
             if elem[0] in dic:
                 dic[elem[0]].update([elem[1]])
@@ -31,8 +32,6 @@ def get_co_occurences_dict(self):
                         dic[e].update(elem)
                     else:
                         dic[e] = Counter(elem)
-            elif (self.task_mode == "user-item"):
-                dic[i] = Counter(elem)
     return dic
 
 def get_context_conditional_distributions(self):
@@ -87,11 +86,11 @@ def get_mutual_exclusivity_stats(self):
     #plt.savefig("occurences")
 
 
-def list_elem_not_co_occuring(self, item):
-    if item not in self.model_params.dict_co_occurences:
-        return np.append(np.arange(self.model_params.vocabulary_size2), item)
+def list_elem_not_co_occuring(self, context, label):
+    if context not in self.model_params.dict_co_occurences:
+        return np.append(np.arange(self.model_params.vocabulary_size2), label)
     else:
-        return np.append(np.delete(np.arange(self.model_params.vocabulary_size2), list(self.model_params.dict_co_occurences[item])), item)
+        return np.append(np.delete(np.arange(self.model_params.vocabulary_size2), list(self.model_params.dict_co_occurences[context])), label)
 
 def get_negatives(self, item, size):
     co_occuring = list(self.model_params.dict_co_occurences[item])
@@ -172,14 +171,11 @@ def get_test_list_batches(self):
     return self.test_list_batches, self.test_baskets, self.test_items
 
 def get_popularity_dist(training_data, vocabulary_size):
-    counter = Counter()
-    if (type(training_data[0])==int):
-        counter.update(training_data)
-    else:
-        for elem in training_data:
-            counter.update(elem)
-    popularity_dist = [float(counter[i]) for i in range(vocabulary_size)]
-    return popularity_dist
+    pop_dist = np.zeros(vocabulary_size)
+    for elem in training_data:
+        pop_dist[elem[0]] += 1
+    pop_dist = pop_dist/np.sum(pop_dist)
+    return pop_dist
 
 def read_text_file(inputfile, outputfile):
     data = read_data_text8("datasets/text8.zip")

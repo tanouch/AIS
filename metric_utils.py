@@ -18,7 +18,7 @@ def testing_step(self, step):
         if (self.model_params.type_of_data=="real"):
             calculate_mpr(self)
             calculate_auc_discriminator(self, step)
-            calculate_proportion_same_element(self, step)
+            #calculate_proportion_same_element(self, step)
             check_similarity(self, step)
             check_analogies(self, step)
        
@@ -126,7 +126,7 @@ def mpr_func(self, batches, context_words, label_words, distributions):
     if (len(batches[0])==2):
         mpr, prec1 = 0, 1
         for k in range(len(batches)):
-            l = list_elem_not_co_occuring(self, context_words[k][0])
+            l = list_elem_not_co_occuring(self, context_words[k][0], label_words[k][0])
             rank = rankdata(distributions[k][l])[-1]
             prec1 = prec1+1 if (rank>(len(l)-2)) else prec1
             mpr += rank/len(l)
@@ -157,9 +157,9 @@ def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
             distributions = self._sess.run(op, \
                 feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
         
-        positive_scores = [distributions[i][label_words[i][0]] for i in range(len(batches))]
-        negative_scores = [distributions[i][e] for i in range(len(batches)) for e in get_negatives(self, context_words[i][0], 10)] \
-            if (len(batches[0])==2) else [distributions[i][e] for e in np.random.choice(self.model_params.vocabulary_size, 10) for i in range(len(batches))]
+        positive_scores = [distributions[i][label_words[i][0]]*self.model_params.popularity_distributions[label_words[i][0]] for i in range(len(batches))]
+        negative_scores = [distributions[i][e]*self.model_params.popularity_distributions[label_words[i][0]] for i in range(len(batches)) for e in get_negatives(self, context_words[i][0], 10)] \
+        #if (len(batches[0])==2) else [distributions[i][e] for e in np.random.choice(self.model_params.vocabulary_size, 10) for i in range(len(batches))]
         
         labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
         aucs.append(roc_auc_score(labels, logits))
@@ -300,10 +300,8 @@ def calculate_proportion_same_element(self, step):
         feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1}
         if ("AIS" in self.model_params.model_type) or (self.model_params.model_type == "MALIGAN"):    
             op = self.gen_self_samples 
-        elif (self.model_params.model_type == "selfplay"):
-            op = self.disc_self_samples
-        else:
-            op = self.disc_random_samples
+        elif (self.model_params.model_type == "SS") or (self.model_params.model_type == "BCE"):
+            op = self.disc_random_and_self_samples
     
         samples = self._sess.run(op, feed_dict)
         prop, prop_equal_target = list(), list()
@@ -372,9 +370,9 @@ def check_similarity(self, step):
         for i, scores in enumerate(similarities):
             ids = np.argsort(-scores)[:25]
             closest = [self.model_params.dictionnary[Id] for Id in ids]
-            print(self.model_params.dictionnary[self.model_params.check_words_similarity[i]], closest[0], closest[1:])
             closest_words.append(closest)
             writer.writerow((closest[0], closest[1:]))
+            #print(self.model_params.dictionnary[self.model_params.check_words_similarity[i]], closest[0], closest[1:])
 
 def check_analogies(self, step):
     if ("text" in self.model_params.dataset):
