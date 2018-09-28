@@ -42,16 +42,19 @@ class Self_Basket_Completion_Model(object):
     def create_graph(self):
         create_placeholders(self)
         create_discriminator(self, size=1)
-        self.before_softmax_G = self.before_softmax_D
+        self.before_softmax_G, self.before_softmax_embedding_G = self.before_softmax_D, self.before_softmax_embedding_D
         if (self.model_params.model_type=="SS") or (self.model_params.model_type=="BCE"):
             self.d_loss2 = -discriminator_adversarial_loss(self)
             self.d_loss = 0.5*(self.d_loss1+self.d_loss2) if (self.adv_discriminator_loss[1]=="Mixed") else self.d_loss2
             self.disc_optimizer_adv, self.adv_grad = tf.train.AdamOptimizer(1.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.gradients(self.d_loss, self.d_weights)
             self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss, var_list=self.d_weights)
         
-        self.disc_optimizer = tf.train.AdamOptimizer(1e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
-        self.d_baseline = self.disc_optimizer.minimize(self.d_loss1, var_list=self.d_weights)
-        self.d_softmax, self.d_mle = self.disc_optimizer.minimize(self.softmax_loss, var_list=self.d_weights), self.disc_optimizer.minimize(-self.mle_lossD, var_list=self.d_weights)
+        lr = 1e-3
+        global_step = tf.Variable(0, trainable=False)
+        rate = tf.train.exponential_decay(lr, global_step, 3, 0.9999)
+        self.disc_optimizer = tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
+        self.d_baseline = self.disc_optimizer.minimize(self.d_loss1, var_list=self.d_weights, global_step=global_step)
+        self.d_softmax, self.d_mle = self.disc_optimizer.minimize(self.softmax_loss, var_list=self.d_weights, global_step=global_step), self.disc_optimizer.minimize(-self.mle_lossD, var_list=self.d_weights, global_step=global_step)
         self.softmax_grad = tf.gradients(self.softmax_loss, self.d_weights)
 
     def train_model_with_tensorflow(self):
@@ -79,9 +82,13 @@ class Self_Basket_Completion_Model(object):
 
                 if (math.isnan(disc_loss1)) or (math.isnan(disc_loss2)):
                     cont = False
+
                 if ((step > self.model_params.min_steps) and (early_stopping(self.dataD[0], 4) or early_stopping(self.dataD[2], 4))) or \
                     (step>self.model_params.max_steps):
                     cont = False
+                
+                if (step%500==0):
+                    print_gen_and_disc_losses(self, step)
                     
                 self.save_data(step)
                 testing_step(self, step)
@@ -97,5 +104,6 @@ class Self_Basket_Completion_Model(object):
         if (step%self.model_params.saving_step==0):
             data = np.array(self.dataD)
             np.save(self.model_params.name, data)
-            if (self.model_params.dataset=="UK") or (self.model_params.dataset=="text8") or (self.model_params.dataset=="text9"):
-                np.save(self.model_params.name+"_emb"+str(step), self._sess.run(self.discriminator.embeddings_tensorflow))
+            #np.save(self.model_params.name+"_disc_emb"+str(step), self._sess.run(self.discriminator.embeddings_tensorflow))
+            #np.save(self.model_params.name+"_disc_weights"+str(step), self._sess.run(self.discriminator.nce_weights))
+            #np.save(self.model_params.name+"_disc_biases"+str(step), self._sess.run(self.discriminator.nce_biases))

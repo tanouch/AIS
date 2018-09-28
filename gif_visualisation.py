@@ -95,15 +95,9 @@ def create_concatenated_images(list_of_files):
     image = Image.open(list_of_files[3])
     new_im.paste(image, (x_offset, y_offset))
     #new_im.save('image.pdf')
-    new_im.save('image.png')
+    new_im.save('image.pdf')
 
-if __name__ == "__main__":
-    
-    list_of_files = from_path_load_all_images("blobs/concat_results/")
-    #print(list_of_files)
-    #create_concatenated_images(list_of_files)
-    
-    print(list_of_files)
+def create_concatenated_images_2(list_of_files):
     images = map(Image.open, list_of_files)
     widths, heights = zip(*(i.size for i in images))
     total_width = sum(widths)
@@ -113,13 +107,39 @@ if __name__ == "__main__":
     #First Im
     image = Image.open(list_of_files[0])
     new_im.paste(image, (x_offset, y_offset))
-    x_offset += image.size[0]+5
+    x_offset += image.size[0]
     #First Im
     image = Image.open(list_of_files[1])
     new_im.paste(image, (x_offset, y_offset))
     x_offset = 0
     y_offset += image.size[1]
+    
     new_im.save('image.pdf')
+
+if __name__ == "__main__":
+    
+    list_of_files = from_path_load_all_images("blobs1_pics/")
+    sort_nicely(list_of_files)
+    print(list_of_files)
+    create_concatenated_images_2(list_of_files)
+    
+    #print(list_of_files)
+    #images = map(Image.open, list_of_files)
+    #widths, heights = zip(*(i.size for i in images))
+    #total_width = sum(widths)
+    #max_height = max(heights)
+    #new_im = Image.new('RGB', (int(total_width), max_height))
+    #x_offset, y_offset = 0, 0
+    ##First Im
+    #image = Image.open(list_of_files[0])
+    #new_im.paste(image, (x_offset, y_offset))
+    #x_offset += image.size[0]+5
+    ##First Im
+    #image = Image.open(list_of_files[1])
+    #new_im.paste(image, (x_offset, y_offset))
+    #x_offset = 0
+    #y_offset += image.size[1]
+    #new_im.save('image.pdf')
 
 
     #list_of_path = ["manifolds/W2V/blobs1/BASE/DISC/Normal/", "manifolds/W2V/blobs1/SELF/DISC/Normal/", "manifolds/W2V/blobs1/GANS_ADV_IS/GEN/Normal/", "manifolds/W2V/blobs1/GANS_ADV_IS/DISC/Normal/"]

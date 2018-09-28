@@ -63,6 +63,9 @@ class W2V_Model(object):
     def get_all_scores(self, output):
         self.before_softmax = tf.matmul(output,tf.transpose(self.nce_weights))+self.nce_biases
         return self.before_softmax
+    def get_all_scores_embeddings_dot_product(self, output, embeddings):
+        self.before_softmax_embedding = tf.matmul(output,tf.transpose(embeddings))
+        return self.before_softmax_embedding
     def get_score(self, output, elem):
         nce_weights, nce_biases = tf.nn.embedding_lookup(self.nce_weights, elem), tf.nn.embedding_lookup(self.nce_biases, elem)
         return tf.reduce_sum(tf.multiply(output, nce_weights), axis=1) + nce_biases

@@ -9,6 +9,16 @@ from matplotlib.ticker import MultipleLocator
 def divide_ais_files(path):
     list_of_files = os.listdir(path)
 
+def rename_files(list_of_files):
+    for files in list_of_files:
+        
+        if ("uniform" in files):
+            os.rename(files, files.replace('_uniform', ''))
+        if ("selfplay" in files):
+            os.rename(files, files.replace('_selfplay', ''))
+        if ("context" in files):
+            os.rename(files, files.replace('_context', ''))
+
 def get_all_files_in_a_path_recursively(path):
     filenames = []
     for root, d_names, f_names in os.walk(path):
@@ -42,10 +52,11 @@ def get_best_algo(list_of_files_per_dataset, index):
     for dataset in list(list_of_files_per_dataset.keys()):
         #writer.writerow(dataset)
         dictionnary[dataset] = list()
-        for algo in ["AIS", "selfplay", "softmax", "uniform", "baseline", "MLE"]:
+        for algo in ["AIS", "selfplay", "softmax", "uniform", "baseline"]:
 
             files = [elem for elem in list_of_files_per_dataset[dataset] if algo in elem]
             results = [np.load(elem) for elem in files]
+            results = [elem for elem in results if len(elem[0])>1]
             mpr = screen_the_metric(results, index)
 
             best_points = get_max(mpr)
@@ -69,22 +80,45 @@ def get_best_algo(list_of_files_per_dataset, index):
     return dictionnary
 
 
-
-path = "Results_StructuredPred/users_items"
+path = "Results_StructuredPred/items_items/Full"
 list_of_files = get_all_files_in_a_path_recursively(path)
 sort_nicely(list_of_files)
-datasets = ["Belgian", "UK", "movielens", "netflix", "text8", "text9"]
+
+#AIS = [files for files in list_of_files if "AIS" in files]
+#softmax = [files for files in list_of_files if "softmax" in files]
+#baseline = [files for files in list_of_files if "baseline" in files]
+#MLE = [files for files in list_of_files if "MLE" in files]
+#rename_files(AIS)
+#rename_files(softmax)
+#rename_files(MLE)
+#rename_files(baseline)
+
+#datasets = ["Belgian", "UK", "movielens", "netflix", "text8", "text9"]
+#datasets = ["Belgian", "UK", "movielens", "netflix"]
+datasets = ["blobs0", "blobs1", "blobs2", "swiss_roll"]
 list_of_files_per_dataset = get_filenames_per_dataset(datasets, list_of_files)
 
-#writer = csv.writer(open('results.csv', 'w'), delimiter=",")
 dictionnary_MPR = get_best_algo(list_of_files_per_dataset, 0)
 dictionnary_AUC = get_best_algo(list_of_files_per_dataset, 2)
 dictionnary_prec1 = get_best_algo(list_of_files_per_dataset, 4)
+#dictionnary_MPR["movielens"][1] = str((0.94911319145888514+0.9461378124803244)/2) + "+-" + str((0.94911319145888514-0.9461378124803244))
+#dictionnary_prec1["movielens"][1] = str((0.023666796043040082-0.021333203956959916)/2) + "+-" + str((0.023666796043040082-0.021333203956959916))
+#dictionnary_MPR["movielens"][1] = str((96.31909+96.22)/2) + " +-" + str((96.319-96.226))
+#dictionnary_prec1["movielens"][1] = str((3.002+3.32)/2) + " +-" + str((3.325-3.0025))
+#dictionnary_MPR["Belgian"][1] = str((89.1569572+89.27)/2) + " +-" + str((89.277-89.156))
+#dictionnary_prec1["Belgian"][1] = str((10.68954+10.886)/2) + " +-" + str((10.886-10.689))
+
+#UK AIS mpr (0.8699239549971418, 0.8704703454700242) prec1 (0.0277474385911871(0.964844423465945, 0.96591206372695) prec1 (0.024283334761877415, 0.02775666523812258), 0.030372561408812893)
+#Belgian AIS mpr (0.8939068294988197, 0.8955689021344648) prec1 (0.10585003206315695, 0.10938996793684307)
+#Text8 AIS mpr (0.8723160047708505, 0.8744992222935746) prec1 (0.07446470877929368, 0.07753529122070632)
+#Text9 AIS mpr (0.8935673961159635, 0.896812785877957) prec1 (0.061166529009579716, 0.06499347099042029)
+#Netflix mpr (0.9477666443059527, 0.9504909088735487) prec1 (0.020202749579806778, 0.021637250420193224)
+#Movielens mpr (0.9632064085091614, 0.9645566373176506) prec1 (0.03368729176995822, 0.03539270823004178)
 
 for dataset in list(list_of_files_per_dataset.keys()):
     print("")
     print(dataset)
-    for i, algo in enumerate(["AIS", "selfplay", "softmax", "uniform", "baseline", "MLE"]):
+    for i, algo in enumerate(["AIS", "selfplay", "softmax", "uniform", "baseline"]):
         print(algo, dictionnary_MPR[dataset][i], dictionnary_AUC[dataset][i], dictionnary_prec1[dataset][i])
 
 

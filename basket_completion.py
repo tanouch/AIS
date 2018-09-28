@@ -47,10 +47,11 @@ class Basket_Completion_Model(object):
         self.d_loss = 0.5*(self.d_loss1+self.d_loss2) if (self.adv_discriminator_loss[1]=="Mixed") else self.d_loss2
         self.g_loss = 0.5*self.g_loss2 + 0.5*self.g_loss1 if (self.adv_generator_loss[1]=="Mixed") else self.g_loss2
 
-        lr, global_step = 1e-3, tf.Variable(0, trainable=False)
-        #rate = tf.train.exponential_decay(lr, global_step, 3, 0.9999)
-        self.gen_optimizer, self.gen_optimizer_adv = tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
-        self.disc_optimizer, self.disc_optimizer_adv = tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(lr, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
+        lr = 1e-3
+        global_step = tf.Variable(0, trainable=False)
+        rate = tf.train.exponential_decay(lr, global_step, 3, 0.9999)
+        self.gen_optimizer, self.gen_optimizer_adv = tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
+        self.disc_optimizer, self.disc_optimizer_adv = tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
         self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss, var_list=self.d_weights)
         self.g_train_MLE, self.g_train_adversarial = self.gen_optimizer.minimize(-self.mle_lossG, var_list=self.g_weights), self.gen_optimizer_adv.minimize(self.g_loss, var_list=self.g_weights, global_step=global_step)
 
@@ -89,6 +90,9 @@ class Basket_Completion_Model(object):
                     (step>self.model_params.max_steps):
                     cont = False
                 
+                if (step%500==0):
+                    print_gen_and_disc_losses(self, step)
+                
                 self.save_data(step)
                 testing_step(self, step)
                 calculate_auc_discriminator(self, step)
@@ -104,5 +108,6 @@ class Basket_Completion_Model(object):
         if (step%self.model_params.saving_step==0):
             np.save(self.model_params.name+"_disc", np.array(self.dataD))
             np.save(self.model_params.name+"_gen", np.array(self.dataG))
-            if (self.model_params.dataset=="UK") or (self.model_params.dataset=="text8") or (self.model_params.dataset=="text9"):
-                np.save(self.model_params.name+"_gen_emb"+str(step), self._sess.run(self.generator.embeddings_tensorflow))
+            #np.save(self.model_params.name+"_gen_emb"+str(step), self._sess.run(self.generator.embeddings_tensorflow))
+            #np.save(self.model_params.name+"_gen_weights"+str(step), self._sess.run(self.generator.nce_weights))
+            #np.save(self.model_params.name+"_gen_biases"+str(step), self._sess.run(self.generator.nce_biases))

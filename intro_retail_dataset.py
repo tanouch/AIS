@@ -30,7 +30,7 @@ class Model(object):
         tf.set_random_seed(self.seed)
         self.rnd = np.random.RandomState(1234)
         
-        self.embedding_size, self.batch_size, self.epoch, self.speeding_factor, self.seq_length = 150, 200, 10, 25, 2
+        self.embedding_size, self.batch_size, self.epoch, self.speeding_factor, self.seq_length = 150, 200, 10, 1, 2
         self.conv_filters = [2, 4, 6, 8, 12]
         self.use_pretrained_embeddings=False
 
@@ -50,7 +50,9 @@ class Model(object):
             self.conditional_distributions = get_context_conditional_distributions(self)
         load_threshold_and_Z(self)
         self.test_data, self.training_data = split_data(self.data, 0.8)
-        self.popularity_distributions = get_popularity_dist(self.training_data, self.vocabulary_size)
+        self.popularity_distributions = get_popularity_dist(self.training_data, self.vocabulary_size, dataset)
+        self.true_popularity_distributions = get_popularity_dist(self.data, self.vocabulary_size, dataset)
+        
         #get_mutual_exclusivity_stats(self)
         
         self.check_words_similarity = np.array(list(self.rnd.choice(100, 25, replace=False)) \
@@ -85,11 +87,12 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         self.use_pretrained_embeddings, self.embedding_matrix = False, 0
         self.G_type, self.D_type = G_type, D_type
         self.model_type, self.neg_sampled = model_type, neg_sampled
-        self.min_steps = 15000
-        self.max_steps = 30000 if (dataset in ["blobs0", "swiss_roll", "s_curve", "moons"]) else 75000
-        self.printing_step, self.saving_step = 5000, 2500
+        self.min_steps = 35000
+        self.max_steps = 12000 if (dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) else 75000
+        self.printing_step, self.saving_step = 2000, 10000
         self.name = model_type + "_" + dataset +"_"+ G_type + "_" + str(neg_sampled)
-        if (sampling=="context") or (sampling=="uniform") or (sampling=="selfplay"):
+        
+        if (model_type=="SS") or (model_type=="BCE"):
             self.name = self.name + "_" + sampling
         self.adv_generator_loss = ["AIS", "Not_Mixed"]
         self.negG, self.negD = [1,0], [1,0]
@@ -97,7 +100,7 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         
         if (model_type=="AIS"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["AIS", "Not_Mixed"], ["SS", "Not_Mixed"]
-            self.negD = [15, 0] if (neg_sampled<10) else [neg_sampled, 0]
+            self.negD = [10, 0] if (neg_sampled<10) else [neg_sampled, 0]
             self.negG = [5, 0] if (neg_sampled<1) else [neg_sampled, 0]
 
         elif (model_type=="AIS-BCE"):
@@ -123,7 +126,10 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
             self.adv_discriminator_loss = ["baseline", "Not_Mixed"]
         
         if (model_type=="SS") or (model_type=="BCE"):
-            self.negD = [neg_sampled, 0] if (sampling=="selfplay") else [0, neg_sampled]
+            if ("selfplay" in sampling):
+                self.negD = [neg_sampled, 0]
+            else:
+                self.negD = [0, neg_sampled]
         self.generator_samples_type = "selfplay"
         print(dataset, model_type, neg_sampled, "negD", self.negD, "negG", self.negG, "G_type", G_type, "D_type", D_type, "sampling", sampling)
 
@@ -213,36 +219,19 @@ def test_other_models(list_of_models, list_of_datasets, list_of_NS=[1], list_of_
 
 def switch_launch(argument, neg_sampled):
     if int(argument) == 1:
-        test_other_models(["AIS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8", "text9", "movielens", "netflix"], [2], [("w2v", "w2v")], "selfplay")
-    if int(argument) == 10:
-        test_other_models(["AIS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8", "text9", "movielens", "netflix"], [5], [("w2v", "w2v")], "selfplay")
+        test_other_models(["AIS"], ["blobs0", "blobs1"], [7], [("w2v", "w2v")], "selfplay")
+
     if int(argument) == 2:
-        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8", "text9", "movielens", "netflix"], [2, 5, 15], [("w2v", "w2v")], "selfplay")
+        test_other_models(["SS"], ["blobs0", "blobs1", "blobs2", "swiss_roll", "UK", "Belgian", "movielens", "netflix", "text8", "text9"], [2,5,10,25,50], [("w2v", "w2v")], "selfplay")
     if int(argument) == 3:
-        test_other_models(["baseline"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8", "text9", "movielens", "netflix"], [2, 5, 25], [("w2v", "w2v")])
+        test_other_models(["SS"], ["blobs0", "blobs1", "blobs2", "swiss_roll", "UK", "Belgian", "movielens", "netflix", "text8", "text9"], [2,5,10,25,50], [("w2v", "w2v")], "not_selfplay")
     if int(argument) == 4:
-        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8", "text9", "movielens", "netflix"], [2, 5, 25], [("w2v", "w2v")], "uniform")
-    if int(argument) == 5:
-        test_other_models(["softmax"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [1], [("w2v", "w2v")])
-    if int(argument) == 6:
-        test_other_models(["MLE"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian"], [1], [("w2v", "w2v")])
-    if int(argument) == 7:
-        test_other_models(["SS"], ["blobs0", "swiss_roll", "s_curve", "moons", "UK", "Belgian", "text8"], [2, 5, 25], [("w2v", "w2v")], "context")
-
-    if int(argument) == 20:
-        test_other_models(["baseline"], ["UK", "Belgian", "movielens", "netflix"], [5, 25], [("w2v", "w2v")], task_mode="user-item")
-        test_other_models(["softmax"], ["UK", "Belgian", "movielens", "netflix"], [1], [("w2v", "w2v")], task_mode="user-item")
-        test_other_models(["SS"], ["UK", "Belgian", "movielens", "netflix"], [5], [("w2v", "w2v")], "uniform", task_mode="user-item")
-        test_other_models(["SS"], ["UK", "Belgian", "movielens", "netflix"], [5], [("w2v", "w2v")], "selfplay", task_mode="user-item")
-        test_other_models(["SS"], ["UK", "Belgian", "movielens", "netflix"], [15], [("w2v", "w2v")], "uniform", task_mode="user-item")
-        test_other_models(["SS"], ["UK", "Belgian", "movielens", "netflix"], [15], [("w2v", "w2v")], "selfplay", task_mode="user-item")
-    if int(argument) == 21:
-        test_other_models(["AIS"], ["UK", "Belgian", "movielens", "netflix"], [2], [("w2v", "w2v")], "selfplay", task_mode="user-item")
-        test_other_models(["AIS"], ["UK", "Belgian", "movielens", "netflix"], [5], [("w2v", "w2v")], "selfplay", task_mode="user-item")
-
+        test_other_models(["SS"], ["blobs0", "blobs1", "blobs2", "swiss_roll", "UK", "Belgian", "movielens", "netflix", "text8", "text9"], [2,5,10,25,50], [("w2v", "w2v")], "selfplay_embedding_dist")
+    
+        
     if int(argument) == 30:
-        Check_Embedings(dataset="text9", task_mode="item-item", list_of_emb_files= \
-        ["fastText_5.npy"])
+        Check_Embedings(dataset="text8", task_mode="item-item", list_of_emb_files= \
+        ["softmax_text8_w2v_5_emb25000.npy"])
        
 def usage_several_cpus():
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:

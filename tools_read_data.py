@@ -140,7 +140,6 @@ def load_threshold_and_Z(self):
         self.threshold = np.load("manifolds/datasets/"+self.dataset+"/threshold.npy")
         self.X = np.load("manifolds/datasets/"+self.dataset+"/X.npy")
         self.Y = np.load("manifolds/datasets/"+self.dataset+"/Y.npy")
-    
 
 def load_data(self):
     dictionnary = {}
@@ -186,6 +185,7 @@ def load_data(self):
         type_of_data = "real"
     if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
         data = np.load("manifolds/datasets/"+self.dataset+"/true_data.npy")
+        data = np.array([[int(elem[0]/25), int(elem[1]/25)] for elem in data])
         folder = "manifolds/"+self.dataset+"/"
         metric = "AUC"
         type_of_data = "synthetic"

@@ -11,10 +11,8 @@ from training_utils import create_batch, print_gen_and_disc_losses, early_stoppi
 
 def testing_step(self, step):
     if (step % self.model_params.printing_step == 0):
-        print_gen_and_disc_losses(self, step)
-
-    if (step % self.model_params.printing_step == 0):
         print("Step", str(step))
+
         if (self.model_params.type_of_data=="real"):
             calculate_mpr(self)
             calculate_auc_discriminator(self, step)
@@ -113,6 +111,20 @@ def get_proportion_of_true_negatives(Z, threshold, speeding_factor, negative_sam
     true_neg_prop = 100*len(true_negatives)/len(negative_samples)
     return true_neg_prop, np.array(true_negatives), np.array(false_negatives)
 
+def get_proportion_of_true_negatives_new(self, pairs):
+    positive_pairs, negative_pairs = list(), list()
+    summ = 0
+    for elem in pairs:
+        if (elem[0] not in self.model_params.dict_co_occurences):
+            summ +=1
+            negative_pairs.append(elem)
+        else:
+            if (self.model_params.dict_co_occurences[elem[0]][elem[1]]==0):
+                negative_pairs.append(elem)
+            else:
+                positive_pairs.append(elem)
+    print(len(positive_pairs), summ)
+    return np.array(positive_pairs), np.array(negative_pairs)
 
 def calculate_mpr(self):
     if self.model_params.working_with_pairs:
@@ -126,10 +138,15 @@ def mpr_func(self, batches, context_words, label_words, distributions):
     if (len(batches[0])==2):
         mpr, prec1 = 0, 1
         for k in range(len(batches)):
-            l = list_elem_not_co_occuring(self, context_words[k][0], label_words[k][0])
-            rank = rankdata(distributions[k][l])[-1]
-            prec1 = prec1+1 if (rank>(len(l)-2)) else prec1
-            mpr += rank/len(l)
+            if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]):
+                l = list_elem_not_co_occuring(self, context_words[k][0], label_words[k][0])
+                rank = rankdata(distributions[k][l])[-1]
+                prec1 = prec1+1 if (rank>(len(l)-2)) else prec1
+                mpr += rank/len(l)
+            else: 
+                rank = rankdata(distributions[k])[label_words[k][0]]
+                prec1 = prec1+1 if (rank>(self.model_params.vocabulary_size2-2)) else prec1
+                mpr += rank/self.model_params.vocabulary_size2
         mpr /= len(batches)
         prec1 /= len(batches)
     
@@ -142,27 +159,38 @@ def mpr_func(self, batches, context_words, label_words, distributions):
 
 def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
     mprs, aucs, prec1s = list(), list(), list()
-    batch = self.test_data[:10000]
-    #test_context = np.random.choice(np.unique(self.test_data[:,0]), 1000) #batch = [[e, np.random.choice(self.model_params.dict_co_occurences[e])]]
+    batch = self.test_data[:2000] if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) \
+        else self.test_data[:15000]
 
     for i in range(5):
-        batches = batch[np.random.choice(len(batch), size=7000)]
+        batches = batch[np.random.choice(len(batch), size=1000)] if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) \
+            else batch[np.random.choice(len(batch), size=10000)]
         context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
 
         if self.model_params.use_pretrained_embeddings:
             user_embeddings = self.model_params.user_embeddings[batches[:,0]]
             distributions = np.matmul(user_embeddings, np.transpose(self.model_params.item_embeddings))
-            
         else:
-            distributions = self._sess.run(op, \
-                feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
+            distributions = self._sess.run(op, feed_dict={self.train_words:context_words, self.dropout:1})
         
-        positive_scores = [distributions[i][label_words[i][0]]*self.model_params.popularity_distributions[label_words[i][0]] for i in range(len(batches))]
-        negative_scores = [distributions[i][e]*self.model_params.popularity_distributions[label_words[i][0]] for i in range(len(batches)) for e in get_negatives(self, context_words[i][0], 10)] \
-        #if (len(batches[0])==2) else [distributions[i][e] for e in np.random.choice(self.model_params.vocabulary_size, 10) for i in range(len(batches))]
-        
+        positive_scores = [distributions[i][label_words[i][0]]*self.model_params.true_popularity_distributions[context_words[i][0]] for i in range(len(batches))]
+        negative_scores = [distributions[i][e]*self.model_params.true_popularity_distributions[context_words[i][0]] for i in range(len(batches)) for e in get_negatives(self, context_words[i][0], 10)] 
         labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
         aucs.append(roc_auc_score(labels, logits))
+        
+        #inputt = np.reshape(np.arange(self.vocabulary_size2),(-1,1))
+        #auc_distributions = np.zeros((self.vocabulary_size2, self.vocabulary_size2))
+        #for elem in batches:
+        #    auc_distributions[batches[i][0]] += distributions[i]
+        #auc_distributions_final = np.zeros((self.vocabulary_size2, self.vocabulary_size2))
+        #for elem in auc_distributions:
+        #    auc_distributions_final[i] = np.mean(auc_distributions[max(0,i-12):min(self.vocabulary_size2, i+12)], axis=0)
+        #test_pairs = [(np.random.choice(self.vocabulary_size2), np.random.choice(self.vocabulary_size2)) for i in range(10000)]
+        #_, negative_pairs, positive_pairs = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, 25, test_pairs)
+        #positive_scores = [auc_distributions[positive_pairs[i][0]][positive_pairs[i][1]] for i in range(len(positive_pairs))]
+        #negative_scores = [auc_distributions[negative_pairs[i][0]][negative_pairs[i][1]] for i in range(len(negative_pairs))]
+        #labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
+        #aucs.append(roc_auc_score(labels, logits))
         
         mpr, prec1 = mpr_func(self, batches, context_words, label_words, distributions)
         mprs.append(mpr)
@@ -180,32 +208,45 @@ def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
 
 def get_heatmap_density(self, positive_samples, output_distributions):
     heatmap = np.zeros((int(self.vocabulary_size/self.model_params.speeding_factor), int(self.vocabulary_size/self.model_params.speeding_factor)))
-    heatmap_final = np.zeros((int(self.vocabulary_size/self.model_params.speeding_factor), int(self.vocabulary_size/self.model_params.speeding_factor)))
     for i, positive_sample in enumerate(positive_samples):
         distrib_compressed = np.mean(np.reshape(output_distributions[i], (-1, self.model_params.speeding_factor)), axis=1)
         heatmap[int(positive_sample[0]/self.model_params.speeding_factor)] += distrib_compressed
     for i in range(len(heatmap)):
-        heatmap_final[i] = np.mean(heatmap[max(0, i-5):min(int(self.vocabulary_size/self.model_params.speeding_factor)-1, i+5)], axis=0)
-    sum_tot = np.sum(heatmap_final)
-    heatmap_final = heatmap_final/sum_tot
-    return heatmap_final
+        if (heatmap[i][0]>0):
+            heatmap[i] = heatmap[i]/np.sum(heatmap[i])
+        else:
+            heatmap[i] += 1/self.model_params.vocabulary_size2
+    
+    return heatmap
 
 def print_samples_and_KDE_density(self, batches, negative_samples, d_values, output_distributions, net_type):
     context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
     heatmap = get_heatmap_density(self, batches, output_distributions)
     
+    #test_pairs = [(np.random.choice(self.vocabulary_size2), np.random.choice(self.vocabulary_size2)) for i in range(5000)]
+    #true_neg_prop, true_negative_pairs, false_negative_pairs = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, self.model_params.speeding_factor, test_pairs)
+    #positive_scores = [heatmap[int(context_words[i][0]/self.model_params.speeding_factor)][int(label_words[i][0]/self.model_params.speeding_factor)] for i in range(len(context_words))]
+    #negative_scores = [heatmap[int(true_negative_pairs[i][0]/self.model_params.speeding_factor)][int(true_negative_pairs[i][1]/self.model_params.speeding_factor)] for i in range(len(true_negative_pairs))]
+    #labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
+    #print(roc_auc_score(labels, logits))
+    
     def plot_samples(print_negatives):
         plt.figure(figsize=(20, 12))
         if print_negatives:
             negative_pairs = np.column_stack((np.tile(context_words, (1, negative_samples.shape[1])).flatten(), negative_samples.flatten()))
-            true_neg_prop, true_negative_pairs, false_negative_pairs = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, 25, negative_pairs)
+
             if len(d_values)==1:
                 plt.plot(negative_pairs[:,0], negative_pairs[:,1], 'o', markersize=2, color="black", alpha=0.08, label="Negative samples")
             else:
                 plt.scatter(negative_pairs[:,0], negative_pairs[:,1], marker='o', s=2, c=d_values.flatten(), alpha=0.08)
 
-        plt.imshow(np.transpose(heatmap), extent=[0, self.vocabulary_size, 0, self.vocabulary_size], alpha=0.4, cmap=cm.RdYlGn, origin="lower", aspect='auto', interpolation="bilinear")
-        plt.contour(self.model_params.X, self.model_params.Y, self.model_params.Z, levels=[self.model_params.threshold], label="KDE estimation")
+        plt.imshow(heatmap, extent=[0, self.vocabulary_size, 0, self.vocabulary_size], alpha=0.4, cmap=cm.RdYlGn, origin="lower", aspect='auto', interpolation="bilinear")
+        binary_data = np.zeros((self.vocabulary_size2, self.vocabulary_size2))
+        X, Y = np.meshgrid(np.arange(self.model_params.vocabulary_size2), np.arange(self.model_params.vocabulary_size2))
+        for elem in self.model_params.data:
+            binary_data[elem[0], elem[1]] = 1
+        plt.contour(X, Y, binary_data, levels=[0.9], label="KDE estimation")
+        #plt.contour((self.model_params.X/25).astype(int), (self.model_params.Y/25).astype(int), self.model_params.Z/25, levels=[self.model_params.threshold], label="KDE estimation")
         plt.legend(loc=4)
         plt.xlabel("Input Product")
         plt.ylabel("Target Product")
@@ -242,6 +283,7 @@ def get_auc_synthetic_data(self):
     else:
         output_distributions, negative_samples= self._sess.run([self.output_distributions_D, self.disc_random_and_self_samples], \
         feed_dict={self.train_words:context_words, self.dropout:1})
+
 
     print_samples_and_KDE_density(self, batches, negative_samples, [1], output_distributions, "DISC")
     mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "D")
@@ -353,9 +395,8 @@ def calculate_auc_discriminator(self, step):
         print("")
 
 def check_similarity(self, step):
-    writer = csv.writer(open(self.model_params.name+"_"+str(step)+'.csv', 'w'), delimiter=",")
-    
     if ("text" in self.model_params.dataset) or (self.model_params.dataset == "UK"):
+        writer = csv.writer(open(self.model_params.name+"_"+str(step)+'.csv', 'w'), delimiter=",")
         if self.model_params.use_pretrained_embeddings:
             norm = np.sqrt(np.sum(np.square(self.model_params.item_embeddings), 1, keepdims=True))
             normalized_embeddings = self.model_params.item_embeddings/norm

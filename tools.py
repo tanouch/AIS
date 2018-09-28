@@ -170,7 +170,7 @@ def get_test_list_batches(self):
                 + [i for i in range(500, 525)] + [i for i in range(1000, 1025)]), (-1,1))
     return self.test_list_batches, self.test_baskets, self.test_items
 
-def get_popularity_dist(training_data, vocabulary_size):
+def get_popularity_dist(training_data, vocabulary_size, dataset):
     pop_dist = np.zeros(vocabulary_size)
     for elem in training_data:
         pop_dist[elem[0]] += 1
@@ -182,7 +182,6 @@ def read_text_file(inputfile, outputfile):
     n_words, top_words_removed_threshold = 30000, 25
     data, count, dictionary, reversed_dictionary = \
         build_dataset(data, n_words, top_words_removed_threshold)
-
     print(len(data))
 
     new_dictionnary = {}
@@ -218,10 +217,7 @@ def process_and_shuffle_data(self):
 
 def get_vocabulary_size(self):
     if (self.task_mode=="item-item"):    
-        if (self.type_of_data=="synthetic"):
-            self.vocabulary_size = 10000
-        else:
-            self.vocabulary_size = 1+max([elem for ss in self.data for elem in ss])      
+        self.vocabulary_size = 1+max([elem for ss in self.data for elem in ss])      
         self.vocabulary_size2 = self.vocabulary_size
     elif (self.task_mode=="user-item"):
         self.vocabulary_size, self.vocabulary_size2 = (1+max([elem for elem in self.data[:,0]]), 1+max([elem for elem in self.data[:,1]]))
