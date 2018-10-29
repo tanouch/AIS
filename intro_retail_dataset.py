@@ -30,7 +30,7 @@ class Model(object):
         tf.set_random_seed(self.seed)
         self.rnd = np.random.RandomState(1234)
         
-        self.embedding_size, self.batch_size, self.epoch, self.speeding_factor, self.seq_length = 150, 200, 10, 1, 2
+        self.embedding_size, self.batch_size, self.epoch, self.speeding_factor, self.seq_length = 150, 50, 10, 1, 2
         self.conv_filters = [2, 4, 6, 8, 12]
         self.use_pretrained_embeddings=False
 
@@ -45,25 +45,20 @@ class Model(object):
             self.data = create_user_to_item_data(dataset, self.data, self.rnd)
 
         self.dict_co_occurences = get_co_occurences_dict(self)
+        self.list_co_occurences = np.array([self.dict_co_occurences[elem] if elem in self.dict_co_occurences else [] for elem in sorted(list(self.dict_co_occurences))])
         self.vocabulary_size, self.vocabulary_size2 = get_vocabulary_size(self)
-        if (sampling=="context"):
-            self.conditional_distributions = get_context_conditional_distributions(self)
+        
         load_threshold_and_Z(self)
         self.test_data, self.training_data = split_data(self.data, 0.8)
-        self.popularity_distributions = get_popularity_dist(self.training_data, self.vocabulary_size, dataset)
+        self.train_popularity_distributions = get_popularity_dist(self.training_data, self.vocabulary_size, dataset)
         self.true_popularity_distributions = get_popularity_dist(self.data, self.vocabulary_size, dataset)
-        
-        #get_mutual_exclusivity_stats(self)
-        
-        self.check_words_similarity = np.array(list(self.rnd.choice(100, 25, replace=False)) \
-            + list(500 + self.rnd.choice(100, 25, replace=False))
-            + list(1000 + self.rnd.choice(100, 25, replace=False))
-            + list(3000 + self.rnd.choice(100, 25, replace=False)))
-        if (dataset=="text8"):
-            self.list_semantic_analogies, self.list_syntactic_analogies = np.load("datasets/semantics12000.npy"), np.load("datasets/syntactics12000.npy")
-        else:
-            self.list_semantic_analogies, self.list_syntactic_analogies = np.load("datasets/semantics30000.npy"), np.load("datasets/syntactics30000.npy")
+        #self.training_data = self.training_data[self.training_data[:,0].argsort()]
+        #self.indices, self.index_words = get_index_words_in_training_data(self.training_data, self.batch_size)
 
+        self.check_words_similarity, self.list_semantic_analogies, self.list_syntactic_analogies = load_words_similarity_and_analogy_data(self.rnd, dataset)
+        
+        if (sampling=="context"):
+            self.conditional_distributions = get_context_conditional_distributions(self)
         print("")
         print("Length data, train and test ", len(self.data), len(self.training_data), len(self.test_data))            
         print("Vocabulary sizes", self.vocabulary_size, self.vocabulary_size2)
@@ -88,30 +83,28 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         self.G_type, self.D_type = G_type, D_type
         self.model_type, self.neg_sampled = model_type, neg_sampled
         self.min_steps = 35000
-        self.max_steps = 12000 if (dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) else 75000
+        self.max_steps = 50000 if (dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) else 200000
         self.printing_step, self.saving_step = 2000, 10000
         self.name = model_type + "_" + dataset +"_"+ G_type + "_" + str(neg_sampled)
         
         if (model_type=="SS") or (model_type=="BCE"):
             self.name = self.name + "_" + sampling
         self.adv_generator_loss = ["AIS", "Not_Mixed"]
-        self.negG, self.negD = [1,0], [1,0]
+        self.negG, self.negD = neg_sampled, neg_sampled
         self.discriminator_samples_type = sampling
         
         if (model_type=="AIS"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["AIS", "Not_Mixed"], ["SS", "Not_Mixed"]
-            self.negD = [10, 0] if (neg_sampled<10) else [neg_sampled, 0]
-            self.negG = [5, 0] if (neg_sampled<1) else [neg_sampled, 0]
+            self.negD = 10 if (neg_sampled<10) else neg_sampled
+            self.negG = 5 if (neg_sampled<1) else neg_sampled
 
         elif (model_type=="AIS-BCE"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["AIS-BCE", "Not_Mixed"], ["BCE", "Not_Mixed"]
-            self.negD = [neg_sampled, 0]
-            self.negG = [5, 0] if (neg_sampled<1) else [neg_sampled, 0]
+            self.negG = 5 if (neg_sampled<1) else neg_sampled
         
         elif (model_type=="MALIGAN"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["MALIGAN", "Mixed"], ["SS", "Not_Mixed"]
-            self.negD = [neg_sampled, 0]
-            self.negG = [5, 0] if (neg_sampled<1) else [neg_sampled, 0]
+            self.negG = 5 if (neg_sampled<1) else neg_sampled
         
         elif (model_type=="softmax") or (model_type=="MLE"):
             self.adv_discriminator_loss = [model_type, "Not_Mixed"]
@@ -125,11 +118,6 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         elif (model_type=="baseline"):
             self.adv_discriminator_loss = ["baseline", "Not_Mixed"]
         
-        if (model_type=="SS") or (model_type=="BCE"):
-            if ("selfplay" in sampling):
-                self.negD = [neg_sampled, 0]
-            else:
-                self.negD = [0, neg_sampled]
         self.generator_samples_type = "selfplay"
         print(dataset, model_type, neg_sampled, "negD", self.negD, "negG", self.negG, "G_type", G_type, "D_type", D_type, "sampling", sampling)
 
@@ -219,18 +207,10 @@ def test_other_models(list_of_models, list_of_datasets, list_of_NS=[1], list_of_
 
 def switch_launch(argument, neg_sampled):
     if int(argument) == 1:
-        test_other_models(["AIS"], ["blobs0", "blobs1"], [7], [("w2v", "w2v")], "selfplay")
-
-    if int(argument) == 2:
-        test_other_models(["SS"], ["blobs0", "blobs1", "blobs2", "swiss_roll", "UK", "Belgian", "movielens", "netflix", "text8", "text9"], [2,5,10,25,50], [("w2v", "w2v")], "selfplay")
-    if int(argument) == 3:
-        test_other_models(["SS"], ["blobs0", "blobs1", "blobs2", "swiss_roll", "UK", "Belgian", "movielens", "netflix", "text8", "text9"], [2,5,10,25,50], [("w2v", "w2v")], "not_selfplay")
-    if int(argument) == 4:
-        test_other_models(["SS"], ["blobs0", "blobs1", "blobs2", "swiss_roll", "UK", "Belgian", "movielens", "netflix", "text8", "text9"], [2,5,10,25,50], [("w2v", "w2v")], "selfplay_embedding_dist")
-    
-        
+        test_other_models(["SS"], ["text9"], [10], [("w2v", "w2v")], "selfplay")
+   
     if int(argument) == 30:
-        Check_Embedings(dataset="text8", task_mode="item-item", list_of_emb_files= \
+        Check_Embedings(dataset="text9", task_mode="item-item", list_of_emb_files= \
         ["softmax_text8_w2v_5_emb25000.npy"])
        
 def usage_several_cpus():

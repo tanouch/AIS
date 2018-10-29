@@ -24,7 +24,7 @@ class Basket_Completion_Model(object):
         self.model_params = model
         self.train_data, self.test_data, self.X_train, self.Y_train, self.X_test, self.Y_test = list(), list(), list(), list(), list(), list()
         self.LSTM_labels_train, self.LSTM_labels_test = list(), list()
-        self.index, self.printing_step = 0, 1000
+        self.index, self.index_words, self.printing_step = 0, 0, 1000
 
         self.neg_sampled = model.neg_sampled
         self.neg_sampled_pretraining = 1 if self.neg_sampled<1 else self.neg_sampled
@@ -33,28 +33,25 @@ class Basket_Completion_Model(object):
         self.seq_length, self.epoch = model.seq_length, model.epoch
         self.embedding_size, self.embedding_matrix, self.use_pretrained_embeddings = model.embedding_size, model.embedding_matrix, model.use_pretrained_embeddings
         self.adv_generator_loss, self.adv_discriminator_loss = model.adv_generator_loss, model.adv_discriminator_loss
-        self.adv_negD, self.random_negD = model.negD
-        self.adv_negG, self.random_negG = model.negG
+        self.negD = model.negD
+        self.negG = model.negG
         self.one_guy_sample = np.random.randint(self.vocabulary_size)
 
     def create_graph(self):
         create_placeholders(self)
         create_generator(self, size=1)
-        create_discriminator(self, size=2)
-        self.g_loss2 = -generator_adversarial_loss(self)
-        self.d_loss2 = -discriminator_adversarial_loss(self)
-
-        self.d_loss = 0.5*(self.d_loss1+self.d_loss2) if (self.adv_discriminator_loss[1]=="Mixed") else self.d_loss2
-        self.g_loss = 0.5*self.g_loss2 + 0.5*self.g_loss1 if (self.adv_generator_loss[1]=="Mixed") else self.g_loss2
+        create_discriminator(self, size=1)
+        self.g_loss3 = -generator_adversarial_loss(self)
+        self.d_loss3 = -discriminator_adversarial_loss(self)
+        self.d_loss2 = sampled_softmax_loss_improved(self)
+        self.g_loss2 = -sampled_softmax_loss_improved_gen(self)
 
         lr = 1e-3
         global_step = tf.Variable(0, trainable=False)
         rate = tf.train.exponential_decay(lr, global_step, 3, 0.9999)
         self.gen_optimizer, self.gen_optimizer_adv = tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
         self.disc_optimizer, self.disc_optimizer_adv = tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.train.AdamOptimizer(rate, beta1=0.8 ,beta2= 0.9, epsilon=1e-5)
-        self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss, var_list=self.d_weights)
-        self.g_train_MLE, self.g_train_adversarial = self.gen_optimizer.minimize(-self.mle_lossG, var_list=self.g_weights), self.gen_optimizer_adv.minimize(self.g_loss, var_list=self.g_weights, global_step=global_step)
-
+        self.d_train_adversarial, self.g_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss2, var_list=self.d_weights, global_step=global_step), self.gen_optimizer_adv.minimize(self.g_loss2, var_list=self.g_weights, global_step=global_step)
         self.dataD = [list(), list(), list(), list(), list(), list(), list()]
         self.dataG = [list(), list(), list(), list(), list(), list(), list()]
 
@@ -65,16 +62,14 @@ class Basket_Completion_Model(object):
         step, cont = 0, True
         disc_itr = 3 if (self.model_params.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]) else 10
         disc_loss1, disc_loss2, gen_loss1, gen_loss2, self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0, 0, 0, 0, 0
-        disc_batch = self.batch_size
-
+        
+        timee = time.time()
         while cont:
             try:
-                if (np.random.uniform()<self.neg_sampled):
-                    _, gen_loss1, gen_loss2 = training_step(self, [self.g_train_adversarial, self.g_loss1, self.g_loss2], self.batch_size)
-                else:
-                    _, gen_loss1 = training_step(self, [self.g_train_MLE, -self.mle_lossG], self.batch_size)
+                _, gen_loss1, gen_loss2 = training_step(self, [self.g_train_adversarial, self.g_loss1, self.g_loss2])
+
                 for i in range(disc_itr):
-                    _, disc_loss1, disc_loss2 = training_step(self, [self.d_train_adversarial, self.d_loss1, self.d_loss2], disc_batch)
+                    _, disc_loss1, disc_loss2 = training_step(self, [self.d_train_adversarial, self.d_loss1, self.d_loss2])
 
                 self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2 = \
                     (self.Gen_loss1+gen_loss1, self.Gen_loss2+gen_loss2, self.Disc_loss1+disc_loss1, self.Disc_loss2+disc_loss2)
@@ -90,12 +85,13 @@ class Basket_Completion_Model(object):
                     (step>self.model_params.max_steps):
                     cont = False
                 
-                if (step%500==0):
-                    print_gen_and_disc_losses(self, step)
-                
+                if (step % self.model_params.printing_step==0):
+                    print(time.time()-timee)
                 self.save_data(step)
                 testing_step(self, step)
                 calculate_auc_discriminator(self, step)
+                if (step % self.model_params.printing_step==0):
+                    timee = time.time()
                 step += 1
             
             except KeyboardInterrupt:

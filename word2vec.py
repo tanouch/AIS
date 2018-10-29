@@ -43,37 +43,37 @@ class W2V_Model(object):
 
     def compute_loss(self, output, label_tensor):
         with tf.name_scope("output_layer"):
-            self.nce_weights = tf.Variable(tf.truncated_normal([self.wider_model.vocabulary_size2, self.wider_model.embedding_size], \
+            self.weights = tf.Variable(tf.truncated_normal([self.wider_model.vocabulary_size2, self.wider_model.embedding_size], \
                 stddev=1.0 / math.sqrt(self.wider_model.embedding_size)))
-            self.nce_biases = tf.Variable(tf.zeros([self.wider_model.vocabulary_size2]))
+            self.biases = tf.Variable(tf.zeros([self.wider_model.vocabulary_size2]))
 
             if (self.loss == "NCE"):
-                self.loss = tf.reduce_mean(tf.nn.nce_loss(
-                    weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
+                loss = tf.reduce_mean(tf.nn.nce_loss(
+                    weights=self.weights, biases=self.biases, labels=label_tensor,
                     inputs=output, num_sampled=self.wider_model.neg_sampled_pretraining, num_classes=self.wider_model.vocabulary_size2))
             if (self.loss == "NEG"):
-                self.loss = tf.reduce_mean(tf.nn.sampled_softmax_loss(
-                    weights=self.nce_weights, biases=self.nce_biases, labels=label_tensor,
+                loss = tf.reduce_mean(tf.nn.sampled_softmax_loss(
+                    weights=self.weights, biases=self.biases, labels=label_tensor,
                     inputs=output, num_sampled=self.wider_model.neg_sampled_pretraining, num_classes=self.wider_model.vocabulary_size2))
-        return self.loss
+        return loss
 
     def get_predictions(self, output):
-        self.last_predictions = tf.nn.softmax(tf.matmul(output,tf.transpose(self.nce_weights))+self.nce_biases)
+        self.last_predictions = tf.nn.softmax(tf.matmul(output, self.weights, transpose_b=True)+self.biases)
         return self.last_predictions
     def get_all_scores(self, output):
-        self.before_softmax = tf.matmul(output,tf.transpose(self.nce_weights))+self.nce_biases
+        self.before_softmax = tf.matmul(output, self.weights, transpose_b=True)+self.biases
         return self.before_softmax
     def get_all_scores_embeddings_dot_product(self, output, embeddings):
-        self.before_softmax_embedding = tf.matmul(output,tf.transpose(embeddings))
+        self.before_softmax_embedding = tf.matmul(output, embeddings, transpose_b=True)
         return self.before_softmax_embedding
     def get_score(self, output, elem):
-        nce_weights, nce_biases = tf.nn.embedding_lookup(self.nce_weights, elem), tf.nn.embedding_lookup(self.nce_biases, elem)
-        return tf.reduce_sum(tf.multiply(output, nce_weights), axis=1) + nce_biases
+        weights, biases = tf.nn.embedding_lookup(self.weights, elem), tf.nn.embedding_lookup(self.biases, elem)
+        return tf.reduce_sum(tf.multiply(output, weights), axis=1) + biases
     def get_similarity(self, input_tensor):
         norm = tf.sqrt(tf.reduce_sum(tf.square(self.embeddings_tensorflow), 1, keepdims=True))
         normalized_embeddings = self.embeddings_tensorflow / norm
         output = tf.reduce_mean(tf.nn.embedding_lookup(normalized_embeddings, input_tensor), axis=1)
-        self.similarity = tf.matmul(output, tf.transpose(normalized_embeddings))
+        self.similarity = tf.matmul(output, normalized_embeddings, transpose_b=True)
         return self.similarity
 
     def create_graph(self):

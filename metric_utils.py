@@ -12,16 +12,17 @@ from training_utils import create_batch, print_gen_and_disc_losses, early_stoppi
 def testing_step(self, step):
     if (step % self.model_params.printing_step == 0):
         print("Step", str(step))
+        print_gen_and_disc_losses(self, step)
 
         if (self.model_params.type_of_data=="real"):
             calculate_mpr(self)
             calculate_auc_discriminator(self, step)
-            #calculate_proportion_same_element(self, step)
             check_similarity(self, step)
             check_analogies(self, step)
+            #calculate_proportion_same_element(self, step)
        
         if (self.model_params.type_of_data=="synthetic"):
-            get_auc_synthetic_data(self)
+            synthetic_data_auc_and_plotting(self)
 
 def print_results_predictions(last_predictions, batch_inputs, targets, vocabulary_size):
     predictions_for_targets = 100*np.mean(np.array([last_predictions[i][int(targets[i])] for i in range(len(batch_inputs))]))
@@ -99,40 +100,12 @@ def calculate_mpr_baskets(self):
         print_confidence_intervals_aux([self.main_scoreG, self.confintG, self.p1G, self.confintp1G, self.p1pG, self.confintp1pG], mpr, p1, p1p)
     print("")
 
-#Functions AUC for Synthetic datasets !!!
-def get_Z_value(Z, speeding_factor, elem):
-    Z = np.transpose(Z)
-    return np.mean([Z[int(elem[0]/speeding_factor), int(elem[1]/speeding_factor)], Z[int(elem[0]/speeding_factor)-1, int(elem[1]/speeding_factor)],
-        Z[int(elem[0]/speeding_factor), int(elem[1]/speeding_factor)-1], Z[int(elem[0]/speeding_factor)-1, int(elem[1]/speeding_factor)-1]])
-
-def get_proportion_of_true_negatives(Z, threshold, speeding_factor, negative_samples):
-    true_negatives = [elem for elem in negative_samples if get_Z_value(Z, 25, elem) < threshold]
-    false_negatives = [elem for elem in negative_samples if get_Z_value(Z, 25, elem) > threshold]
-    true_neg_prop = 100*len(true_negatives)/len(negative_samples)
-    return true_neg_prop, np.array(true_negatives), np.array(false_negatives)
-
-def get_proportion_of_true_negatives_new(self, pairs):
-    positive_pairs, negative_pairs = list(), list()
-    summ = 0
-    for elem in pairs:
-        if (elem[0] not in self.model_params.dict_co_occurences):
-            summ +=1
-            negative_pairs.append(elem)
-        else:
-            if (self.model_params.dict_co_occurences[elem[0]][elem[1]]==0):
-                negative_pairs.append(elem)
-            else:
-                positive_pairs.append(elem)
-    print(len(positive_pairs), summ)
-    return np.array(positive_pairs), np.array(negative_pairs)
 
 def calculate_mpr(self):
-    if self.model_params.working_with_pairs:
-        calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "Disc")
-        if ("AIS" in self.model_params.model_type):
-            calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "Gen")
-    else:    
-        calculate_mpr_baskets(self)
+    calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "Disc")
+    if ("AIS" in self.model_params.model_type):
+        calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "Gen")
+
 
 def mpr_func(self, batches, context_words, label_words, distributions):
     if (len(batches[0])==2):
@@ -160,11 +133,11 @@ def mpr_func(self, batches, context_words, label_words, distributions):
 def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
     mprs, aucs, prec1s = list(), list(), list()
     batch = self.test_data[:2000] if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) \
-        else self.test_data[:15000]
+        else self.test_data[:7000]
 
     for i in range(5):
         batches = batch[np.random.choice(len(batch), size=1000)] if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) \
-            else batch[np.random.choice(len(batch), size=10000)]
+            else batch[np.random.choice(len(batch), size=5000)]
         context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
 
         if self.model_params.use_pretrained_embeddings:
@@ -177,20 +150,6 @@ def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
         negative_scores = [distributions[i][e]*self.model_params.true_popularity_distributions[context_words[i][0]] for i in range(len(batches)) for e in get_negatives(self, context_words[i][0], 10)] 
         labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
         aucs.append(roc_auc_score(labels, logits))
-        
-        #inputt = np.reshape(np.arange(self.vocabulary_size2),(-1,1))
-        #auc_distributions = np.zeros((self.vocabulary_size2, self.vocabulary_size2))
-        #for elem in batches:
-        #    auc_distributions[batches[i][0]] += distributions[i]
-        #auc_distributions_final = np.zeros((self.vocabulary_size2, self.vocabulary_size2))
-        #for elem in auc_distributions:
-        #    auc_distributions_final[i] = np.mean(auc_distributions[max(0,i-12):min(self.vocabulary_size2, i+12)], axis=0)
-        #test_pairs = [(np.random.choice(self.vocabulary_size2), np.random.choice(self.vocabulary_size2)) for i in range(10000)]
-        #_, negative_pairs, positive_pairs = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, 25, test_pairs)
-        #positive_scores = [auc_distributions[positive_pairs[i][0]][positive_pairs[i][1]] for i in range(len(positive_pairs))]
-        #negative_scores = [auc_distributions[negative_pairs[i][0]][negative_pairs[i][1]] for i in range(len(negative_pairs))]
-        #labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
-        #aucs.append(roc_auc_score(labels, logits))
         
         mpr, prec1 = mpr_func(self, batches, context_words, label_words, distributions)
         mprs.append(mpr)
@@ -205,6 +164,28 @@ def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
         list_of_logs[2*i].append((res[i][0]+res[i][1])/2)
         list_of_logs[2*i + 1].append(res[i][1]-res[i][0])
     return mpr, auc
+
+
+def synthetic_data_auc_and_plotting(self):
+    batches = self.test_data[np.random.choice(len(self.test_data), size=5000)]
+    context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
+    feed_dict = {self.train_words:context_words, self.dropout:1}
+
+    if (self.model_params.model_type=="baseline") or (self.model_params.model_type=="softmax") or (self.model_params.model_type=="MLE"):
+        out_dist = self._sess.run(self.output_distributions_D, feed_dict)
+        ns = [1]
+    else:
+        out_dist, ns= self._sess.run([self.output_distributions_D, self.disc_self_samples], feed_dict)
+
+    print_samples_and_KDE_density(self, batches, ns, [1], out_dist, "DISC")
+    mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "D")
+
+    if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
+        out_dist, ns, ns_D_values = self._sess.run([self.output_distributions_G , self.gen_self_samples, self.gen_self_values_D_sigmoid_aux], feed_dict)
+        print_samples_and_KDE_density(self, batches, ns, ns_D_values, out_dist, "GEN")
+        mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "G")
+    print("")
+
 
 def get_heatmap_density(self, positive_samples, output_distributions):
     heatmap = np.zeros((int(self.vocabulary_size/self.model_params.speeding_factor), int(self.vocabulary_size/self.model_params.speeding_factor)))
@@ -223,13 +204,6 @@ def print_samples_and_KDE_density(self, batches, negative_samples, d_values, out
     context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
     heatmap = get_heatmap_density(self, batches, output_distributions)
     
-    #test_pairs = [(np.random.choice(self.vocabulary_size2), np.random.choice(self.vocabulary_size2)) for i in range(5000)]
-    #true_neg_prop, true_negative_pairs, false_negative_pairs = get_proportion_of_true_negatives(self.model_params.Z, self.model_params.threshold, self.model_params.speeding_factor, test_pairs)
-    #positive_scores = [heatmap[int(context_words[i][0]/self.model_params.speeding_factor)][int(label_words[i][0]/self.model_params.speeding_factor)] for i in range(len(context_words))]
-    #negative_scores = [heatmap[int(true_negative_pairs[i][0]/self.model_params.speeding_factor)][int(true_negative_pairs[i][1]/self.model_params.speeding_factor)] for i in range(len(true_negative_pairs))]
-    #labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
-    #print(roc_auc_score(labels, logits))
-    
     def plot_samples(print_negatives):
         plt.figure(figsize=(20, 12))
         if print_negatives:
@@ -246,7 +220,6 @@ def print_samples_and_KDE_density(self, batches, negative_samples, d_values, out
         for elem in self.model_params.data:
             binary_data[elem[0], elem[1]] = 1
         plt.contour(X, Y, binary_data, levels=[0.9], label="KDE estimation")
-        #plt.contour((self.model_params.X/25).astype(int), (self.model_params.Y/25).astype(int), self.model_params.Z/25, levels=[self.model_params.threshold], label="KDE estimation")
         plt.legend(loc=4)
         plt.xlabel("Input Product")
         plt.ylabel("Target Product")
@@ -270,71 +243,12 @@ def print_samples_and_KDE_density(self, batches, negative_samples, d_values, out
     if (len(negative_samples)!=1):
         plot_samples(True)
 
-
-def get_auc_synthetic_data(self):
-    print("")
-    batches = self.test_data[np.random.choice(len(self.test_data), size=5000)]
-    context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
-
-    if (self.model_params.model_type=="baseline") or (self.model_params.model_type=="softmax") or (self.model_params.model_type=="MLE"):
-        output_distributions = self._sess.run(self.output_distributions_D, \
-        feed_dict={self.train_words:context_words, self.dropout:1})
-        negative_samples = [1]
-    else:
-        output_distributions, negative_samples= self._sess.run([self.output_distributions_D, self.disc_random_and_self_samples], \
-        feed_dict={self.train_words:context_words, self.dropout:1})
-
-
-    print_samples_and_KDE_density(self, batches, negative_samples, [1], output_distributions, "DISC")
-    mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "D")
-
-    if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
-        output_distributions, negative_samples, negative_samples_D_values = self._sess.run([self.output_distributions_G , self.gen_self_samples, self.gen_self_values_D], \
-            feed_dict={self.train_words:context_words, self.label_words:label_words, self.dropout:1})
-        print_samples_and_KDE_density(self, batches, negative_samples, negative_samples_D_values, output_distributions, "GEN")
-        mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "G")
-    print("")
-
-
-def get_auc_real_data(self):
-    positive_samples = self.test_data[np.random.choice(len(self.test_data), size=5000)]
-    negative_samples = np.array([(np.random.randint(self.vocabulary_size2), np.random.randint(self.vocabulary_size2)) for elem in range(5000)])
-    
-    number_of_cross_validations = 5
-    auc_scoresD, auc_scoresG = list(), list()
-    for k in range(number_of_cross_validations):
-        batches_selected = np.random.choice(np.arange(len(positive_samples)), int(0.7*len(positive_samples)), replace=False)
-        def append_res(op, auc_scores):
-            pos_t, pos_l = np.reshape(positive_samples[batches_selected][:,0], (-1,1)), np.reshape(positive_samples[batches_selected][:,1], (-1,1))
-            neg_t, neg_l = np.reshape(negative_samples[batches_selected][:,0], (-1,1)), np.reshape(negative_samples[batches_selected][:,1], (-1,1))
-            positive_scores = list(self._sess.run([op], feed_dict={self.train_words:pos_t, self.label_words:pos_l, self.dropout:1})[0])
-            negative_scores = list(self._sess.run([op], feed_dict={self.train_words:neg_t, self.label_words:neg_l, self.dropout:1})[0])
-            scores = positive_scores+negative_scores
-            labels = np.array([1]*len(positive_scores) + [0]*len(negative_scores))
-            auc_scores.append(roc_auc_score(labels, scores))
-
-        append_res(self.score_target_D, auc_scoresD)
-        if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
-            append_res(self.score_target_G, auc_scoresG)
-    print("")
-
-    def get_auc_real_data_aux(l, auc, model):
-        auc = get_conf_int(auc, 5)
-        print("AUC score for " + model + str(auc))
-        l[0].append(round(sum(auc)/2, 5))
-        l[1].append(round(auc[1]-auc[0], 5))
-        
-    get_auc_real_data_aux([self.main_scoreD, self.confintD], auc_scoresD, "discriminator")
-    if (self.model_params.model_type=="AIS") or (self.model_params.model_type=="MALIGAN"):
-            get_auc_real_data_aux([self.main_scoreG, self.confintG], auc_scoresG, "generator")
-    print("")
-
-
 def calculate_proportion_same_element(self, step):
     if (self.model_params.neg_sampled>1) and (self.model_params.model_type != "baseline") and \
         (self.model_params.model_type != "softmax") and (self.model_params.model_type != "MLE"):
         if self.model_params.working_with_pairs :
             batches = self.training_data[np.random.choice(len(self.training_data), 500)]
+            
         else:
             batches = get_basket_set_size_training(self.training_data, 500, 3)
 
@@ -343,7 +257,7 @@ def calculate_proportion_same_element(self, step):
         if ("AIS" in self.model_params.model_type) or (self.model_params.model_type == "MALIGAN"):    
             op = self.gen_self_samples 
         elif (self.model_params.model_type == "SS") or (self.model_params.model_type == "BCE"):
-            op = self.disc_random_and_self_samples
+            op = self.disc_self_samples
     
         samples = self._sess.run(op, feed_dict)
         prop, prop_equal_target = list(), list()
@@ -362,7 +276,7 @@ def calculate_proportion_same_element(self, step):
 def get_training_auc_discriminator_aux(self, batches):
     train_words, label_words = batches[:,:-1], batches[:,1:]
     fake_sig, fake_soft, true_sig, true_soft = self._sess.run([
-            self.gen_fake_values_D_sigmoid, self.gen_fake_values_D_softmax,
+            self.gen_self_values_D_sigmoid, self.gen_self_values_D_softmax,
             self.gen_true_values_D_sigmoid, self.gen_true_values_D_softmax], 
         feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1})
     

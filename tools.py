@@ -1,5 +1,7 @@
 import matplotlib.pyplot as plt
 import copy
+import tensorflow as tf
+from tensorflow.python.client import timeline
 from random import shuffle, sample
 import itertools
 import csv
@@ -85,6 +87,32 @@ def get_mutual_exclusivity_stats(self):
     #plt.xticks(indexes + width * 0.5, labels)
     #plt.savefig("occurences")
 
+def get_index_words_in_training_data(data, batch_size):
+    dic_number_of_context_appearances = Counter()
+    dic_number_of_context_appearances.update(data[:,0])
+    summ, index_words, indices = 0, list(), list()
+    #index_words.append(0)
+    for i, elem in enumerate(sorted(list(dic_number_of_context_appearances.keys()))):
+        appearances = dic_number_of_context_appearances[elem]
+        summ += appearances
+        index_words.append(summ)
+        for k in range(int(appearances/batch_size)+1):
+            indices.append(i)
+    indices = np.array(indices)
+    np.random.shuffle(indices)
+    return np.array(index_words), indices
+
+def load_words_similarity_and_analogy_data(rnd, dataset):
+    check_words_similarity = np.array(list(rnd.choice(100, 25, replace=False)) \
+        + list(500 + rnd.choice(100, 25, replace=False))
+        + list(1000 + rnd.choice(100, 25, replace=False))
+        + list(3000 + rnd.choice(100, 25, replace=False)))
+    if (dataset=="text8"):
+        list_semantic_analogies, list_syntactic_analogies = np.load("datasets/semantics12000.npy"), np.load("datasets/syntactics12000.npy")
+    else :
+        list_semantic_analogies, list_syntactic_analogies = np.load("datasets/semantics30000.npy"), np.load("datasets/syntactics30000.npy")
+    
+    return check_words_similarity, list_semantic_analogies, list_syntactic_analogies
 
 def list_elem_not_co_occuring(self, context, label):
     if context not in self.model_params.dict_co_occurences:
@@ -278,3 +306,15 @@ def generate_wholeBatch(data, skip_window, generate_all_pairs):
         labels = labels[shuffle_idx]
         context = context[shuffle_idx]
         return context, labels
+
+def create_options_and_metadata(self):
+    options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+    run_metadata = tf.RunMetadata()
+    return options, run_metadata
+
+def create_timeline_object(self):
+    # Create the Timeline object, and write it to a json file
+    self.fetched_timeline = timeline.Timeline(self.run_metadata.step_stats)
+    self.chrome_trace = self.fetched_timeline.generate_chrome_trace_format()
+    with open('timeline_01.json', 'w') as f:
+        f.write(self.chrome_trace)
