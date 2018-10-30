@@ -50,7 +50,6 @@ class Model(object):
         
         load_threshold_and_Z(self)
         self.test_data, self.training_data = split_data(self.data, 0.8)
-        self.train_popularity_distributions = get_popularity_dist(self.training_data, self.vocabulary_size, dataset)
         self.true_popularity_distributions = get_popularity_dist(self.data, self.vocabulary_size, dataset)
         #self.training_data = self.training_data[self.training_data[:,0].argsort()]
         #self.indices, self.index_words = get_index_words_in_training_data(self.training_data, self.batch_size)
@@ -206,17 +205,13 @@ def test_other_models(list_of_models, list_of_datasets, list_of_NS=[1], list_of_
                         neg_sampled=NS, G_type=net[0], D_type=net[1], sampling=sampling)
 
 def switch_launch(argument, neg_sampled):
-    if int(argument) == 1:
-        test_other_models(["SS"], ["text9"], [10], [("w2v", "w2v")], "selfplay")
-   
-    if int(argument) == 30:
-        Check_Embedings(dataset="text9", task_mode="item-item", list_of_emb_files= \
-        ["softmax_text8_w2v_5_emb25000.npy"])
-       
+    #test_other_models(["SS"], ["text8"], [250], [("w2v", "w2v")], "top_random_selfplay")
+    #test_other_models(["SS"], ["text8"], [10], [("w2v", "w2v")], "selfplay")
+    test_other_models(["SS"], ["text8"], [10], [("w2v", "w2v")], "context_emb")
+    #test_other_models(["SS"], ["text8"], [20], [("w2v", "w2v")], "target_emb")
+
 def usage_several_cpus():
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:
         executor.map(switch_launch, [1, 2])
 
 switch_launch(sys.argv[1], sys.argv[2])
-
-#read_text_file("text8_30000_25.vec", "fastText_25.npy")

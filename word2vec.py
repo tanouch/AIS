@@ -60,15 +60,17 @@ class W2V_Model(object):
     def get_predictions(self, output):
         self.last_predictions = tf.nn.softmax(tf.matmul(output, self.weights, transpose_b=True)+self.biases)
         return self.last_predictions
+
     def get_all_scores(self, output):
-        self.before_softmax = tf.matmul(output, self.weights, transpose_b=True)+self.biases
-        return self.before_softmax
-    def get_all_scores_embeddings_dot_product(self, output, embeddings):
-        self.before_softmax_embedding = tf.matmul(output, embeddings, transpose_b=True)
-        return self.before_softmax_embedding
+        return tf.matmul(output, self.weights, transpose_b=True)+self.biases
+        
+    def get_all_scores_emb(self, output):
+        return tf.matmul(output, self.embeddings_tensorflow, transpose_b=True)
+        
     def get_score(self, output, elem):
         weights, biases = tf.nn.embedding_lookup(self.weights, elem), tf.nn.embedding_lookup(self.biases, elem)
         return tf.reduce_sum(tf.multiply(output, weights), axis=1) + biases
+        
     def get_similarity(self, input_tensor):
         norm = tf.sqrt(tf.reduce_sum(tf.square(self.embeddings_tensorflow), 1, keepdims=True))
         normalized_embeddings = self.embeddings_tensorflow / norm

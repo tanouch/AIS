@@ -150,7 +150,12 @@ def load_data(self):
         type_of_data = "real"
     if self.dataset == "text9":
         data, dictionnary = create_text8_dataset("datasets/text8.zip", 30000)
-        folder = "datasets/text8/"
+        folder = "datasets/text9/"
+        metric = "MPR"
+        type_of_data = "real"
+    if self.dataset == "text10":
+        data, dictionnary = create_text8_dataset("datasets/text8.zip", 60000)
+        folder = "datasets/text10/"
         metric = "MPR"
         type_of_data = "real"
     if self.dataset == "NYtimes":

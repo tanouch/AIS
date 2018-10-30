@@ -23,6 +23,7 @@ def testing_step(self, step):
        
         if (self.model_params.type_of_data=="synthetic"):
             synthetic_data_auc_and_plotting(self)
+        print("")
 
 def print_results_predictions(last_predictions, batch_inputs, targets, vocabulary_size):
     predictions_for_targets = 100*np.mean(np.array([last_predictions[i][int(targets[i])] for i in range(len(batch_inputs))]))
@@ -102,9 +103,9 @@ def calculate_mpr_baskets(self):
 
 
 def calculate_mpr(self):
-    calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "Disc")
+    calculate_mpr_and_auc_pairs(self, self.before_softmax_D, self.dataD, "Disc")
     if ("AIS" in self.model_params.model_type):
-        calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "Gen")
+        calculate_mpr_and_auc_pairs(self, self.before_softmax_G, self.dataG, "Gen")
 
 
 def mpr_func(self, batches, context_words, label_words, distributions):
@@ -340,8 +341,7 @@ def check_analogies(self, step):
                 embeddings = self._sess.run(op)
             
             for elem in list_analogies:
-                context_embeddings.append(embeddings[elem[0]] - \
-                    embeddings[elem[1]] + embeddings[elem[2]])
+                context_embeddings.append(embeddings[elem[0]] - embeddings[elem[1]] + embeddings[elem[2]])
             context_embeddings = normalize(np.array(context_embeddings), norm='l2', axis=1, copy=True, return_norm=False)
             embeddings = normalize(embeddings, norm='l2', axis=1, copy=True, return_norm=False)
             analogies = np.matmul(context_embeddings, np.transpose(embeddings))

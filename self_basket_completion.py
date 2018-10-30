@@ -45,9 +45,8 @@ class Self_Basket_Completion_Model(object):
     def create_graph(self):
         create_placeholders(self)
         create_discriminator(self, size=1)
-        self.before_softmax_G, self.before_softmax_embedding_G = self.before_softmax_D, self.before_softmax_embedding_D
         if (self.model_params.model_type=="SS") or (self.model_params.model_type=="BCE"):
-            self.d_loss2 = -discriminator_adversarial_loss(self) #sampled_softmax_loss_improved(self)
+            self.d_loss2 = -discriminator_adversarial_loss(self) 
             self.disc_optimizer_adv, self.adv_grad = LazyAdamOptimizer(1.5e-3, beta1=0.8 ,beta2= 0.9, epsilon=1e-5), tf.gradients(self.d_loss2, self.d_weights)
             self.d_train_adversarial = self.disc_optimizer_adv.minimize(self.d_loss2, var_list=self.d_weights)
         
@@ -93,7 +92,8 @@ class Self_Basket_Completion_Model(object):
 
                 self.save_data(step)
                 testing_step(self, step)
-                create_timeline_object(self)
+                if (step<20):
+                    create_timeline_object(self)
 
                 if (step % self.model_params.printing_step==0):
                     timee = time.time()

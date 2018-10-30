@@ -41,18 +41,18 @@ def create_generator(self, size):
 
         self.generator.create_embedding_layer()
         self.generator.embeddings_tensorflow = self.generator.embeddings(tf.constant(np.arange(self.vocabulary_size), dtype=tf.int32))
-        self.output_g = self.generator.creating_layer(self.train_words, self.dropout)
-        self.output_label_g = self.generator.creating_layer(self.label_words, self.dropout)
+        self.context_emb_g = self.generator.creating_layer(self.train_words, self.dropout)
+        self.target_emb_g = self.generator.creating_layer(self.label_words, self.dropout)
         
         self.g_loss1 = self.generator.compute_loss(self.label_words) if (self.model_params.G_type=='LSTM') \
-            else self.generator.compute_loss(self.output_g, self.label_words)
-        self.before_softmax_G = self.generator.get_all_scores(self.output_g)
-        self.output_distributions_G = self.generator.get_predictions(self.output_g)
-        self.score_target_G = self.generator.get_score(self.output_g, tf.reshape(self.label_words, [-1]))
+            else self.generator.compute_loss(self.context_emb_g, self.label_words)
+        self.before_softmax_G = self.generator.get_all_scores(self.context_emb_g)
+        self.output_distributions_G = self.generator.get_predictions(self.context_emb_g)
+
+        self.score_target_G = self.generator.get_score(self.context_emb_g, tf.reshape(self.label_words, [-1]))
         self.similarity_G = self.generator.get_similarity(self.train_words)
         self.g_weights = get_network_variables(self, "generator")
         self.mle_lossG = tf.reduce_sum(tf.log(tf.sigmoid(self.score_target_G)))
-        self.before_softmax_embedding_G = self.generator.get_all_scores_embeddings_dot_product(self.output_label_g, self.generator.embeddings_tensorflow)
         
 def create_discriminator(self, size):
     with tf.variable_scope("discriminator") as scope:
@@ -65,56 +65,60 @@ def create_discriminator(self, size):
 
         self.discriminator.create_embedding_layer()
         self.discriminator.embeddings_tensorflow = self.discriminator.embeddings(tf.constant(np.arange(self.vocabulary_size), dtype=tf.int32))
-        self.output_d = self.discriminator.creating_layer(self.train_words, self.dropout)
-        self.output_label_d = self.discriminator.creating_layer(self.label_words, self.dropout)
+        self.context_emb_d = self.discriminator.creating_layer(self.train_words, self.dropout)
+        self.target_emb_d = self.discriminator.creating_layer(self.label_words, self.dropout)
         
-        self.d_loss1 = self.discriminator.compute_loss(self.output_d, self.label_words)
-        self.before_softmax_D = self.discriminator.get_all_scores(self.output_d)
-        self.output_distributions_D = self.discriminator.get_predictions(self.output_d)
+        self.d_loss1 = self.discriminator.compute_loss(self.context_emb_d, self.label_words)
+        self.before_softmax_D = self.discriminator.get_all_scores(self.context_emb_d)
+        
+        self.score_target_D = self.discriminator.get_score(self.context_emb_d, tf.reshape(self.label_words, [-1]))
         self.similarity_D = self.discriminator.get_similarity(self.train_words)
-        self.score_target_D = self.discriminator.get_score(self.output_d, tf.reshape(self.label_words, [-1]))
         self.mle_lossD = tf.reduce_sum(tf.log(tf.sigmoid(self.score_target_D)))
         self.softmax_loss = tf.reduce_sum(tf.nn.softmax_cross_entropy_with_logits_v2(labels= tf.one_hot(tf.reshape(self.label_words[:,-1], [-1]), \
             self.vocabulary_size2), logits=self.before_softmax_D))
         self.d_weights = get_network_variables(self, "discriminator")
-        self.before_softmax_embedding_D = self.discriminator.get_all_scores_embeddings_dot_product(self.output_label_d, self.discriminator.embeddings_tensorflow)
+
 
 def get_adv_samples(self, argument, number):
-    switcher = {
-        "selfplay": tf.multinomial(self.before_softmax_G, num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
-        "top_selfplay": tf.cast(tf.nn.top_k(self.before_softmax_G, k=number)[1], dtype=tf.int32),
-        "not_selfplay": tf.multinomial(-self.before_softmax_G, num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
-        "selfplay_emb": tf.multinomial(self.before_softmax_embedding_G, num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
-        "context": tf.multinomial(-self.before_softmax_embedding_G, num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
-        "uniform": tf.random_uniform(shape=[tf.shape(self.train_words)[0], number], minval=0, maxval=self.vocabulary_size2-1, dtype=tf.int32, seed=self.model_params.seed),
-        "not_emp": tf.multinomial(tf.nn.embedding_lookup(self.conditional_distributions_tensor, tf.reshape(self.train_words, [-1])), num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
-        "emp": tf.multinomial(tf.nn.embedding_lookup(-self.conditional_distributions_tensor, tf.reshape(self.train_words, [-1])), num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed)
-    }
+    seed = self.model_params.seed
+    if (self.model_params.model_type=="AIS"):
+        switcher = {
+            "selfplay": tf.multinomial(self.before_softmax_G, num_samples=number, output_dtype=tf.int32, seed=seed),
+        }
+    else:
+        switcher = {
+            "selfplay": tf.multinomial(self.before_softmax_D, num_samples=number, output_dtype=tf.int32, seed=seed),
+            "not_selfplay": tf.multinomial(-self.before_softmax_D, num_samples=number, output_dtype=tf.int32, seed=seed),
+            "top_selfplay": tf.cast(tf.nn.top_k(self.before_softmax_D, k=number)[1], dtype=tf.int32),
+            "top_random_selfplay": tf.cast(tf.nn.top_k(self.before_softmax_D, k=number)[1], dtype=tf.int32)[:,-10:],
+            "context_emb": tf.multinomial(self.discriminator.get_similarity(self.train_words), num_samples=number, output_dtype=tf.int32, seed=seed),
+            "target_emb": tf.multinomial(self.discriminator.get_similarity(self.label_words), num_samples=number, output_dtype=tf.int32, seed=seed),
+            "uniform": tf.random_uniform(shape=[tf.shape(self.train_words)[0], number], minval=0, maxval=self.vocabulary_size2-1, dtype=tf.int32, seed=seed),
+            "emp": tf.multinomial(tf.nn.embedding_lookup(-self.conditional_distributions_tensor, tf.reshape(self.train_words, [-1])), num_samples=number, output_dtype=tf.int32, seed=seed)
+        }
     return switcher.get(argument)
 
 def get_adv_samples_for_whole_batch(self, argument, number):
+    seed = self.model_params.seed
     switcher = {
-        "selfplay": tf.multinomial(self.before_softmax_G[0:1], num_samples=number, output_dtype=tf.int64, seed=self.model_params.seed, name="disc_self_samples"),
-        "top_selfplay": tf.cast(tf.nn.top_k(self.before_softmax_G[0], k=number)[1], dtype=tf.int32, name="disc_self_samples"),
-        "not_selfplay": tf.multinomial(-self.before_softmax_G[0:1], num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed, name="disc_self_samples"),
-        "uniform": tf.random_uniform(shape=[number], minval=0, maxval=self.vocabulary_size2-1, dtype=tf.int32, seed=self.model_params.seed, name="disc_self_samples"),
-        "not_emp": tf.multinomial(tf.nn.embedding_lookup(self.conditional_distributions_tensor, self.train_words[0]), num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed),
-        "emp": tf.multinomial(tf.nn.embedding_lookup(-self.conditional_distributions_tensor, self.train_words[0]), num_samples=number, output_dtype=tf.int32, seed=self.model_params.seed)
+        "selfplay": tf.multinomial(self.before_softmax_G[0:1], num_samples=number, output_dtype=tf.int64, seed=seed),
+        "top_selfplay": tf.cast(tf.nn.top_k(self.before_softmax_G[0], k=number)[1], dtype=tf.int32),
+        "not_selfplay": tf.multinomial(-self.before_softmax_G[0:1], num_samples=number, output_dtype=tf.int32, seed=seed),
+        "uniform": tf.random_uniform(shape=[number], minval=0, maxval=self.vocabulary_size2-1, dtype=tf.int32, seed=seed),
+        "not_emp": tf.multinomial(tf.nn.embedding_lookup(self.conditional_distributions_tensor, self.train_words[0]), num_samples=number, output_dtype=tf.int32, seed=seed),
+        "emp": tf.multinomial(tf.nn.embedding_lookup(-self.conditional_distributions_tensor, self.train_words[0]), num_samples=number, output_dtype=tf.int32, seed=seed)
     }
     return switcher.get(argument)
 
 def sampled_softmax_loss_improved(self):
     def fn(elem):
         return self.output_distributions_D[0][elem]
-    #self.disc_tv = tf.reshape(tf.sigmoid(self.score_target_D), (-1,1))
-    #self.disc_sv = tf.sigmoid(self.discriminator.get_score(tf.tile(self.output_d[:1], tf.constant([self.negD, 1])), self.disc_ss))
     self.disc_ss = tf.reshape(get_adv_samples_for_whole_batch(self, self.model_params.discriminator_samples_type, self.negD), [-1])
     self.disc_tv = tf.reshape(tf.stack(tf.map_fn(fn, self.label_words[:,0], dtype=tf.float32)), (-1,1))
     self.disc_sv = tf.stack(tf.map_fn(fn, self.disc_ss, dtype=tf.float32))
-
     loss = tf.reduce_sum(tf.nn.sampled_softmax_loss(
         weights = self.discriminator.weights, biases = self.discriminator.biases,
-        labels = self.label_words, inputs = self.output_d, num_sampled = self.negD,
+        labels = self.label_words, inputs = self.context_emb_d, num_sampled = self.negD,
         num_classes = self.model_params.vocabulary_size2,
         sampled_values = (self.disc_ss, self.disc_tv, self.disc_sv),
         seed = self.model_params.seed))
@@ -122,12 +126,11 @@ def sampled_softmax_loss_improved(self):
 
 
 def discriminator_adversarial_loss(self):
-    #self.disc_true_values = tf.reshape(tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.label_words), dtype=tf.float32, name="disc_true_values")), [-1])
-    #self.disc_self_values = tf.stack(tf.map_fn(fake_fn_improved, (self.output_d, self.disc_self_samples), dtype=tf.float32, name="disc_self_values"))
     self.disc_self_samples = get_adv_samples(self, self.model_params.discriminator_samples_type, self.negD)
+    
     self.disc_fake_samples = tf.concat([self.disc_self_samples, self.label_words], axis=1) if ("SS" in self.adv_discriminator_loss[0]) else \
         tf.concat([self.disc_self_samples], axis=1)
-    self.disc_fake_values = tf.reduce_sum(tf.multiply(tf.expand_dims(self.output_d, 1), \
+    self.disc_fake_values = tf.reduce_sum(tf.multiply(tf.expand_dims(self.context_emb_d, 1), \
         tf.nn.embedding_lookup(self.discriminator.weights, self.disc_fake_samples)), axis=-1) + tf.nn.embedding_lookup(self.discriminator.biases, self.disc_fake_samples)
     
     loss = tf.reduce_sum(self.score_target_D) - tf.reduce_sum(tf.log(tf.reduce_sum(tf.exp(self.disc_fake_values), axis=1))) if ("SS" in self.adv_discriminator_loss[0]) else \
@@ -152,7 +155,7 @@ def generator_adversarial_loss(self):
         weights, biases = tf.nn.embedding_lookup(self.generator.weights, items), tf.nn.embedding_lookup(self.generator.biases, items)
         return tf.reduce_sum(tf.multiply(embedding, weights), axis=1) + biases
 
-    #self.gen_true_values = tf.stack(tf.map_fn(fn_G_improved, (self.output_g, self.label_words), dtype=tf.float32, name="gen_true_values"))
+    #self.gen_true_values = tf.stack(tf.map_fn(fn_G_improved, (self.context_emb_g, self.label_words), dtype=tf.float32, name="gen_true_values"))
     self.gen_self_samples = get_adv_samples(self, self.model_params.generator_samples_type, self.negG)
 
     if (self.model_params.model_type=="MALIGAN"):
@@ -164,10 +167,10 @@ def generator_adversarial_loss(self):
 
     if ("AIS" in self.model_params.model_type):
         self.gen_fake_samples = tf.concat([self.gen_self_samples, self.label_words], axis=1) if (self.model_params.model_type=="AIS") else self.gen_self_samples
-        self.gen_fake_values = tf.stack(tf.map_fn(fn_G_improved, (self.output_g, self.gen_fake_samples), dtype=tf.float32, name="gen_fake_values")) 
+        self.gen_fake_values = tf.stack(tf.map_fn(fn_G_improved, (self.context_emb_g, self.gen_fake_samples), dtype=tf.float32, name="gen_fake_values")) 
         
-        self.gen_fake_values_D = tf.stack(tf.map_fn(fn_D_improved, (self.output_d, self.gen_fake_samples), dtype=tf.float32, name="gen_fake_values_D"))
-        self.gen_self_values_D_sigmoid_aux = tf.sigmoid(tf.stack(tf.map_fn(fn_D_improved, (self.output_d, self.gen_self_samples), dtype=tf.float32, name="gen_self_values_D")))
+        self.gen_fake_values_D = tf.stack(tf.map_fn(fn_D_improved, (self.context_emb_d, self.gen_fake_samples), dtype=tf.float32, name="gen_fake_values_D"))
+        self.gen_self_values_D_sigmoid_aux = tf.sigmoid(tf.stack(tf.map_fn(fn_D_improved, (self.context_emb_d, self.gen_self_samples), dtype=tf.float32, name="gen_self_values_D")))
         self.gen_fake_values_D_sigmoid, self.gen_fake_values_D_softmax = tf.sigmoid(self.gen_fake_values_D), tf.nn.softmax(self.gen_fake_values_D)
         self.gen_self_values_D_sigmoid, self.gen_self_values_D_softmax = self.gen_fake_values_D_sigmoid[:,:-1], self.gen_fake_values_D_softmax[:,:-1]
         self.gen_true_values_D_sigmoid, self.gen_true_values_D_softmax = self.gen_fake_values_D_sigmoid[:,-1], self.gen_fake_values_D_softmax[:,-1]
@@ -184,11 +187,11 @@ def generator_adversarial_loss(self):
 
 def sampled_softmax_loss_improved_gen(self):
     self.gen_ss = tf.reshape(get_adv_samples_for_whole_batch(self, self.model_params.generator_samples_type, self.negG), [-1])
-    self.gen_sv = tf.tile(tf.reshape(self.generator.get_score(tf.tile(self.output_g[:1], tf.constant([self.negG,1])), self.gen_ss), (1, -1)), tf.shape(self.train_words[:,:1]))
+    self.gen_sv = tf.tile(tf.reshape(self.generator.get_score(tf.tile(self.context_emb_g[:1], tf.constant([self.negG,1])), self.gen_ss), (1, -1)), tf.shape(self.train_words[:,:1]))
     self.gen_tv = tf.reshape(self.score_target_G, (-1,1))
     self.gen_fv = tf.concat([self.gen_sv, self.gen_tv], axis=1)
     
-    self.gen_sv_disc = tf.tile(tf.reshape(self.discriminator.get_score(tf.tile(self.output_d[:1], tf.constant([self.negG,1])), self.gen_ss), (1, -1)), tf.shape(self.train_words[:,:1]))
+    self.gen_sv_disc = tf.tile(tf.reshape(self.discriminator.get_score(tf.tile(self.context_emb_d[:1], tf.constant([self.negG,1])), self.gen_ss), (1, -1)), tf.shape(self.train_words[:,:1]))
     self.gen_tv_disc = tf.reshape(self.score_target_D, (-1,1))
     self.gen_fv_disc = tf.concat([self.gen_sv_disc, self.gen_tv_disc], axis=1)
     self.gen_fv_disc = tf.nn.sigmoid(-self.gen_fv_disc)
