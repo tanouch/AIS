@@ -92,7 +92,7 @@ class Self_Basket_Completion_Model(object):
 
                 self.save_data(step)
                 testing_step(self, step)
-                if (step<20):
+                if (step<10):
                     create_timeline_object(self)
 
                 if (step % self.model_params.printing_step==0):

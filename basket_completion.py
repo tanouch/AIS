@@ -41,10 +41,8 @@ class Basket_Completion_Model(object):
         create_placeholders(self)
         create_generator(self, size=1)
         create_discriminator(self, size=1)
-        self.g_loss3 = -generator_adversarial_loss(self)
-        self.d_loss3 = -discriminator_adversarial_loss(self)
-        self.d_loss2 = sampled_softmax_loss_improved(self)
-        self.g_loss2 = -sampled_softmax_loss_improved_gen(self)
+        self.g_loss2 = -generator_adversarial_loss(self)
+        self.d_loss2 = -discriminator_adversarial_loss(self)
 
         lr = 1e-3
         global_step = tf.Variable(0, trainable=False)
@@ -59,8 +57,9 @@ class Basket_Completion_Model(object):
         self.create_graph()
         self._sess = tf.Session()
         self._sess.run(tf.global_variables_initializer())
+        self.options, self.run_metadata = create_options_and_metadata(self)
         step, cont = 0, True
-        disc_itr = 3 if (self.model_params.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]) else 10
+        disc_itr = 1 if (self.model_params.dataset in ["blobs", "blobs50", "blobs100", "blobs200"]) else 5
         disc_loss1, disc_loss2, gen_loss1, gen_loss2, self.Gen_loss1, self.Gen_loss2, self.Disc_loss1, self.Disc_loss2, self.pic_number = 0, 0, 0, 0, 0, 0, 0, 0, 0
         
         timee = time.time()
@@ -92,6 +91,8 @@ class Basket_Completion_Model(object):
                 calculate_auc_discriminator(self, step)
                 if (step % self.model_params.printing_step==0):
                     timee = time.time()
+                if (step<10):
+                    create_timeline_object(self)
                 step += 1
             
             except KeyboardInterrupt:

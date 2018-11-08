@@ -135,7 +135,7 @@ def create_analogy_datasets(textfile, filename, dictionary):
     np.save(filename, np.array(analogies_indices))
 
 def load_threshold_and_Z(self):
-    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
+    if (self.dataset in ["blobs", "blobs100", "blobs50", "blobs200", "s_curve", "swiss_roll", "moons", "circles"]):
         self.Z = np.load("manifolds/datasets/"+self.dataset+"/Z.npy")
         self.threshold = np.load("manifolds/datasets/"+self.dataset+"/threshold.npy")
         self.X = np.load("manifolds/datasets/"+self.dataset+"/X.npy")
@@ -188,9 +188,8 @@ def load_data(self):
         folder = "datasets/Amazon/"
         metric = "MPR"
         type_of_data = "real"
-    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "s_curve", "swiss_roll", "moons", "circles"]):
+    if (self.dataset in ["blobs", "blobs0", "blobs1", "blobs2", "blobs50", "blobs100", "blobs200", "s_curve", "swiss_roll", "moons", "circles"]):
         data = np.load("manifolds/datasets/"+self.dataset+"/true_data.npy")
-        data = np.array([[int(elem[0]/25), int(elem[1]/25)] for elem in data])
         folder = "manifolds/"+self.dataset+"/"
         metric = "AUC"
         type_of_data = "synthetic"

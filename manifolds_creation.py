@@ -10,6 +10,10 @@ import math
 import os
 from sklearn.metrics import roc_auc_score
 
+def create_dir(type_of_data):
+    if not os.path.exists(type_of_data):
+        os.makedirs(type_of_data)
+
 def create_true_data(type_of_data, number_of_modes, std, size, vocabulary_size):
     list_of_x_values, list_of_y_values = list(), list()
     if (type_of_data=="mixture_of_gaussians"):
@@ -48,7 +52,7 @@ def print_data_points(x, y):
     plt.xlim((min_x-unzoom_factor, max_x+unzoom_factor))
     plt.ylim((min_y-unzoom_factor, max_y+unzoom_factor))
     plt.plot(x, y, 'ro')
-    sns.kdeplot(x, y, cmap="Reds", shade=True, shade_lowest=False, cumulative=False, vertical=False, cut=3)
+    #sns.kdeplot(x, y, cmap="Reds", shade=True, shade_lowest=False, cumulative=False, vertical=False, cut=3)
     plt.legend()
     plt.show()
 
@@ -63,7 +67,7 @@ def print_percentile_data(data):
 
 def print_data_points_and_KDE_density(x, KDE, type_of_data, folder):
     create_dir(folder)
-    speeding_factor = 25
+    speeding_factor = 1
     X,Y = np.meshgrid(np.arange(0, vocabulary_size, speeding_factor), np.arange(0, vocabulary_size, speeding_factor))
     mesh = np.column_stack([X.ravel(), Y.ravel()])
     true_values = np.exp(KDE.score_samples(x))
@@ -85,8 +89,10 @@ def print_data_points_and_KDE_density(x, KDE, type_of_data, folder):
     np.save(folder+"/"+"Z.npy", Z)
     np.save(folder+"/"+"threshold.npy", threshold)
 
-if False:
+if True:
     type_of_data = "blobs"
-    x = create_true_data(type_of_data, number_of_modes, 0.1, number_of_points_generated, vocabulary_size)
-    KDE = KernelDensity(bandwidth=150.0).fit(x)
-    print_data_points_and_KDE_density(x, KDE, type_of_data, "blobs1")
+    vocabulary_size, number_of_points_generated, number_of_modes, std = 1000, 10000, 500, 0.05
+    x = create_true_data(type_of_data, number_of_modes, std, number_of_points_generated, vocabulary_size)
+    print_data_points(x[:,0], x[:,1])
+    KDE = KernelDensity(bandwidth=25.0).fit(x)
+    print_data_points_and_KDE_density(x, KDE, type_of_data, "blobs5")

@@ -51,7 +51,6 @@ class Model(object):
         load_threshold_and_Z(self)
         self.test_data, self.training_data = split_data(self.data, 0.8)
         self.true_popularity_distributions = get_popularity_dist(self.data, self.vocabulary_size, dataset)
-        #self.training_data = self.training_data[self.training_data[:,0].argsort()]
         #self.indices, self.index_words = get_index_words_in_training_data(self.training_data, self.batch_size)
 
         self.check_words_similarity, self.list_semantic_analogies, self.list_syntactic_analogies = load_words_similarity_and_analogy_data(self.rnd, dataset)
@@ -81,16 +80,16 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         self.use_pretrained_embeddings, self.embedding_matrix = False, 0
         self.G_type, self.D_type = G_type, D_type
         self.model_type, self.neg_sampled = model_type, neg_sampled
-        self.min_steps = 35000
-        self.max_steps = 50000 if (dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) else 200000
-        self.printing_step, self.saving_step = 2000, 10000
+        self.min_steps = 20000 if (dataset in ["blobs50", "blobs100", "blobs200", "swiss_roll", "s_curve", "moons"]) else 100000
+        self.max_steps = 30000 if (dataset in ["blobs50", "blobs100", "blobs200", "swiss_roll", "s_curve", "moons"]) else 100000
+        self.printing_step, self.saving_step = 5000, 10000
         self.name = model_type + "_" + dataset +"_"+ G_type + "_" + str(neg_sampled)
         
         if (model_type=="SS") or (model_type=="BCE"):
-            self.name = self.name + "_" + sampling
+            self.name = self.name + "_".join(sampling)
         self.adv_generator_loss = ["AIS", "Not_Mixed"]
         self.negG, self.negD = neg_sampled, neg_sampled
-        self.discriminator_samples_type = sampling
+        self.sampling = sampling
         
         if (model_type=="AIS"):
             self.adv_generator_loss, self.adv_discriminator_loss = ["AIS", "Not_Mixed"], ["SS", "Not_Mixed"]
@@ -117,8 +116,7 @@ def create_all_attributes(self, dataset, model_type, neg_sampled, G_type, D_type
         elif (model_type=="baseline"):
             self.adv_discriminator_loss = ["baseline", "Not_Mixed"]
         
-        self.generator_samples_type = "selfplay"
-        print(dataset, model_type, neg_sampled, "negD", self.negD, "negG", self.negG, "G_type", G_type, "D_type", D_type, "sampling", sampling)
+        print(dataset, model_type, neg_sampled, "negD", self.negD, "negG", self.negG, "G_type", G_type, "D_type", D_type, "sampling", "_".join(sampling))
 
 class Basket_Completion(Model):
     def __init__(self, dataset, task_mode, model_type, neg_sampled, G_type, D_type, sampling):
@@ -205,10 +203,23 @@ def test_other_models(list_of_models, list_of_datasets, list_of_NS=[1], list_of_
                         neg_sampled=NS, G_type=net[0], D_type=net[1], sampling=sampling)
 
 def switch_launch(argument, neg_sampled):
-    #test_other_models(["SS"], ["text8"], [250], [("w2v", "w2v")], "top_random_selfplay")
-    #test_other_models(["SS"], ["text8"], [10], [("w2v", "w2v")], "selfplay")
-    test_other_models(["SS"], ["text8"], [10], [("w2v", "w2v")], "context_emb")
-    #test_other_models(["SS"], ["text8"], [20], [("w2v", "w2v")], "target_emb")
+    if (argument=="1"):
+        test_other_models(["AIS"], ["blobs200"], [20], [("w2v", "w2v")], ["selfplay"])
+    elif (argument=="2"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["top_selfplay"])
+    elif (argument=="3"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["random_top_selfplay"])
+    elif (argument=="4"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["uniform"])
+    elif (argument=="5"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["context_emb"])
+    elif (argument=="6"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["target_emb"])
+    elif (argument=="7"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["top_then_selfplay"])
+    elif (argument=="8"):
+        test_other_models(["SS"], ["blobs200"], [20], [("w2v", "w2v")], ["top_then_uniform"])
+
 
 def usage_several_cpus():
     with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:

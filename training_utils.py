@@ -77,7 +77,6 @@ def create_batch_same_context3(self, size):
 
 def training_step(self, list_of_operations_to_run):
     train_words, label_words = create_batch(self, self.batch_size)
-    #train_words, label_words = create_batch_same_context2(self, self.batch_size)
 
     return self._sess.run(list_of_operations_to_run,
         feed_dict={self.train_words:train_words, self.label_words:label_words, self.dropout:1},

@@ -112,7 +112,7 @@ def mpr_func(self, batches, context_words, label_words, distributions):
     if (len(batches[0])==2):
         mpr, prec1 = 0, 1
         for k in range(len(batches)):
-            if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]):
+            if (self.model_params.dataset in ["blobs0", "blobs1", "blobs50", "blobs100", "blobs200", "blobs500", "swiss_roll", "s_curve", "moons"]):
                 l = list_elem_not_co_occuring(self, context_words[k][0], label_words[k][0])
                 rank = rankdata(distributions[k][l])[-1]
                 prec1 = prec1+1 if (rank>(len(l)-2)) else prec1
@@ -133,7 +133,7 @@ def mpr_func(self, batches, context_words, label_words, distributions):
 
 def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
     mprs, aucs, prec1s = list(), list(), list()
-    batch = self.test_data[:2000] if (self.model_params.dataset in ["blobs0", "blobs1", "blobs2", "swiss_roll", "s_curve", "moons"]) \
+    batch = self.test_data[:2000] if (self.model_params.dataset in ["blobs50", "blobs100", "blobs200", "swiss_roll", "s_curve", "moons"]) \
         else self.test_data[:7000]
 
     for i in range(5):
@@ -168,15 +168,17 @@ def calculate_mpr_and_auc_pairs(self, op, list_of_logs, net):
 
 
 def synthetic_data_auc_and_plotting(self):
-    batches = self.test_data[np.random.choice(len(self.test_data), size=5000)]
+    #batches = self.test_data[np.random.choice(len(self.test_data), size=5000)]
+    batches = self.test_data[:5000]
     context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
-    feed_dict = {self.train_words:context_words, self.dropout:1}
+    feed_dict = {self.train_words:context_words, self.label_words:label_words, self.dropout:1}
 
     if (self.model_params.model_type=="baseline") or (self.model_params.model_type=="softmax") or (self.model_params.model_type=="MLE"):
         out_dist = self._sess.run(self.output_distributions_D, feed_dict)
         ns = [1]
     else:
         out_dist, ns= self._sess.run([self.output_distributions_D, self.disc_self_samples], feed_dict)
+        false_ns = sum([1 for context in context_words.flatten() for neg in ns[context] if self.model_params.Z[neg,context]<self.model_params.threshold])/len(ns.flatten())
 
     print_samples_and_KDE_density(self, batches, ns, [1], out_dist, "DISC")
     mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_D, self.dataD, "D")
@@ -185,42 +187,39 @@ def synthetic_data_auc_and_plotting(self):
         out_dist, ns, ns_D_values = self._sess.run([self.output_distributions_G , self.gen_self_samples, self.gen_self_values_D_sigmoid_aux], feed_dict)
         print_samples_and_KDE_density(self, batches, ns, ns_D_values, out_dist, "GEN")
         mpr, auc = calculate_mpr_and_auc_pairs(self, self.output_distributions_G, self.dataG, "G")
+    
+    print("Number of different targets sampled", len(np.unique(ns.flatten())))
+    print("Proportion of true negative sampled", false_ns)
     print("")
 
 
 def get_heatmap_density(self, positive_samples, output_distributions):
-    heatmap = np.zeros((int(self.vocabulary_size/self.model_params.speeding_factor), int(self.vocabulary_size/self.model_params.speeding_factor)))
-    for i, positive_sample in enumerate(positive_samples):
-        distrib_compressed = np.mean(np.reshape(output_distributions[i], (-1, self.model_params.speeding_factor)), axis=1)
-        heatmap[int(positive_sample[0]/self.model_params.speeding_factor)] += distrib_compressed
-    for i in range(len(heatmap)):
-        if (heatmap[i][0]>0):
-            heatmap[i] = heatmap[i]/np.sum(heatmap[i])
-        else:
-            heatmap[i] += 1/self.model_params.vocabulary_size2
-    
+    feed_dict = {self.train_words:np.reshape(np.arange(self.model_params.vocabulary_size), (-1,1)), self.dropout:1}
+    heatmap = self._sess.run(self.output_distributions_G, feed_dict) if self.model_params.model_type=="AIS" else self._sess.run(self.output_distributions_D, feed_dict)
     return heatmap
 
 def print_samples_and_KDE_density(self, batches, negative_samples, d_values, output_distributions, net_type):
     context_words, label_words = np.reshape(batches[:,0], (-1,1)), np.reshape(batches[:,-1], (-1,1))
     heatmap = get_heatmap_density(self, batches, output_distributions)
+    #positive_scores = [heatmap[i,j] for (i,j) in self.test_data[:2000]]
+    #random = np.reshape(np.random.choice(self.model_params.vocabulary_size2, 5000),(-1,2))
+    #negative_scores = [heatmap[i,j] for (i,j) in random if self.model_params.Z[j,i]<self.model_params.threshold]
+    #labels, logits = np.array([1]*len(positive_scores) + [0]*len(negative_scores)), np.array(positive_scores+negative_scores)
+    #print(roc_auc_score(labels, logits))
     
     def plot_samples(print_negatives):
         plt.figure(figsize=(20, 12))
         if print_negatives:
             negative_pairs = np.column_stack((np.tile(context_words, (1, negative_samples.shape[1])).flatten(), negative_samples.flatten()))
+            plt.plot(negative_pairs[:,0], negative_pairs[:,1], 'o', markersize=2, color="black", alpha=0.08, label="Negative samples")
+            #plt.scatter(negative_pairs[:,0], negative_pairs[:,1], marker='o', s=2, c=d_values.flatten(), alpha=0.08)
 
-            if len(d_values)==1:
-                plt.plot(negative_pairs[:,0], negative_pairs[:,1], 'o', markersize=2, color="black", alpha=0.08, label="Negative samples")
-            else:
-                plt.scatter(negative_pairs[:,0], negative_pairs[:,1], marker='o', s=2, c=d_values.flatten(), alpha=0.08)
-
-        plt.imshow(heatmap, extent=[0, self.vocabulary_size, 0, self.vocabulary_size], alpha=0.4, cmap=cm.RdYlGn, origin="lower", aspect='auto', interpolation="bilinear")
+        #plt.imshow(heatmap, extent=[0, self.vocabulary_size, 0, self.vocabulary_size], alpha=0.4, cmap=cm.RdYlGn, origin="lower", aspect='auto', interpolation="bilinear")
         binary_data = np.zeros((self.vocabulary_size2, self.vocabulary_size2))
         X, Y = np.meshgrid(np.arange(self.model_params.vocabulary_size2), np.arange(self.model_params.vocabulary_size2))
         for elem in self.model_params.data:
             binary_data[elem[0], elem[1]] = 1
-        plt.contour(X, Y, binary_data, levels=[0.9], label="KDE estimation")
+        plt.contour(Y, X, binary_data, levels=[0.9], label="KDE estimation")
         plt.legend(loc=4)
         plt.xlabel("Input Product")
         plt.ylabel("Target Product")
@@ -229,7 +228,7 @@ def print_samples_and_KDE_density(self, batches, negative_samples, d_values, out
         if (self.model_params.model_type != "SS"):
             folder = self.model_params.folder+"/"+self.model_params.model_type+"/"
         else:
-            folder = self.model_params.folder+"/"+self.model_params.model_type+"_"+self.model_params.discriminator_samples_type+"/"
+            folder = self.model_params.folder+"/"+self.model_params.model_type+"_"+"_".join(self.model_params.sampling)+"/"
         create_dir(folder)
         folder = folder + "/" + net_type + "/"
         create_dir(folder)
@@ -298,7 +297,7 @@ def get_training_auc_discriminator_aux(self, batches):
     print_auc(fake_soft, true_soft, "auc softmax")
     
 def calculate_auc_discriminator(self, step):
-    if ("AIS" in self.model_params.model_type) and (step%500==0):
+    if ("AIS" in self.model_params.model_type) and (step%1000==0):
         if self.model_params.working_with_pairs:
             batches = self.training_data[np.random.choice(len(self.training_data), 1000)]
             get_training_auc_discriminator_aux(self, batches)
